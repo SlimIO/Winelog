@@ -1,6 +1,24 @@
 declare namespace Winelog {
 
-    export function readEventLog(logName: string): any;
+    export enum LogType {
+        Application = 0,
+        System = 1,
+        Security = 2,
+        DirectoryService = 3,
+        DNSServer = 4,
+        FileReplicationService = 5
+    }
+
+    export interface EventLog {
+        eventId: number;
+        recordNumber: number;
+        eventName: string;
+        timeGenerated: number;
+        timeWritten: number;
+    }
+
+    export function readEventLog(logName: Winelog.LogType): EventLog[];
+
 }
 
 export as namespace Winelog;
