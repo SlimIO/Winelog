@@ -10,9 +10,11 @@ declare namespace Winelog {
     }
 
     export interface EventLog {
-        eventId: number;
+        id: number;
+        type: string;
         recordNumber: number;
-        eventName: string;
+        caterogy: string;
+        message: string;
         timeGenerated: number;
         timeWritten: number;
     }

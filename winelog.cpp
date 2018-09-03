@@ -46,6 +46,45 @@ DWORD getEventTypeName(DWORD EventType) {
     return index;
 }
 
+// Formats the specified message. If the message uses inserts, build
+// the argument list to pass to FormatMessage.
+LPCSTR getMessageString(HANDLE g_hResources, DWORD MessageId, DWORD argc, LPCSTR argv) {
+    LPCSTR pMessage = NULL;
+    DWORD dwFormatFlags = FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_FROM_HMODULE | FORMAT_MESSAGE_ALLOCATE_BUFFER;
+    DWORD_PTR* pArgs = NULL;
+    LPCSTR pString = argv;
+
+    // The insertion strings appended to the end of the event record
+    // are an array of strings; however, FormatMessage requires
+    // an array of addresses. Create an array of DWORD_PTRs based on
+    // the count of strings. Assign the address of each string
+    // to an element in the array (maintaining the same order).
+    if (argc > 0) {
+        pArgs = (DWORD_PTR*) malloc(sizeof(DWORD_PTR) * argc);
+        if (pArgs) {
+            dwFormatFlags |= FORMAT_MESSAGE_ARGUMENT_ARRAY;
+            for (DWORD i = 0; i < argc; i++) {
+                pArgs[i] = (DWORD_PTR)pString;
+                pString += strlen(pString) + 1;
+            }
+        }
+        else {
+            dwFormatFlags |= FORMAT_MESSAGE_IGNORE_INSERTS;
+            printf("Failed to allocate memory for the insert string array.\n");
+        }
+    }
+
+    if (!FormatMessageA(dwFormatFlags, g_hResources, MessageId, 0, (LPSTR) &pMessage, 0, (va_list*) pArgs)) {
+        printf("Format message failed with %d\n", GetLastError());
+    }
+
+    if (pArgs) {
+        free(pArgs);
+    }
+
+    return pMessage;
+}
+
 /*
  * Binding for retrieving drive performance
  * 
@@ -88,11 +127,11 @@ Value readEventLog(const CallbackInfo& info) {
     }
 
     // LoadLibrary
-    // hResources = LoadLibraryExA(resourceDDL, NULL, LOAD_LIBRARY_AS_IMAGE_RESOURCE | LOAD_LIBRARY_AS_DATAFILE);
-    // if (NULL == hResources) {
-    //     wprintf(L"LoadLibrary failed with %lu.\n", GetLastError());
-    //     goto cleanup;
-    // }
+    hResources = LoadLibraryExA(resourceDDL, NULL, LOAD_LIBRARY_AS_IMAGE_RESOURCE | LOAD_LIBRARY_AS_DATAFILE);
+    if (NULL == hResources) {
+        printf("LoadLibrary failed with %d.\n", GetLastError());
+        goto cleanup;
+    }
 
     // Allocate an initial block of memory used to read event records. The number 
     // of records read into the buffer will vary depending on the size of each event.
@@ -103,7 +142,7 @@ Value readEventLog(const CallbackInfo& info) {
     dwBytesToRead = MAX_RECORD_BUFFER_SIZE;
     pBuffer = (PBYTE) malloc(dwBytesToRead);
     if (NULL == pBuffer) {
-        wprintf(L"Failed to allocate the initial memory for the record buffer.\n");
+        printf("Failed to allocate the initial memory for the record buffer.\n");
         goto cleanup;
     }
 
@@ -139,16 +178,29 @@ Value readEventLog(const CallbackInfo& info) {
             while (pRecord < pEndOfRecords) {
                 PEVENTLOGRECORD record = (PEVENTLOGRECORD) pRecord;
                 DWORD eventType = getEventTypeName(record->EventType);
+
                 Object recordJS = Object::New(env);
                 ret[i] = recordJS;
-                recordJS.Set("eventId", record->EventID);
+                recordJS.Set("id", record->EventID);
                 recordJS.Set("recordNumber", record->RecordNumber);
                 recordJS.Set("timeGenerated", record->TimeGenerated);
                 recordJS.Set("timeWritten", record->TimeWritten);
-                recordJS.Set("eventType", pEventTypeNames[eventType]);
-                i++;
+                recordJS.Set("type", pEventTypeNames[eventType]);
 
-                pRecord += (record)->Length;
+                LPCSTR eventCategory = getMessageString(hResources, record->EventCategory, 0, NULL);
+                if (eventCategory) {
+                    wprintf(L"event category: %s", eventCategory);
+                    eventCategory = NULL;
+                }
+                
+                // To write the event data, you need to know the format of the data. In
+                // this example, we know that the event data is a null-terminated string.
+                if (record->DataLength > 0) {
+                    wprintf(L"event data: %s\n", (LPWSTR) (pRecord + record->DataOffset));
+                }
+
+                i++;
+                pRecord += record->Length;
             }
         }
     }
