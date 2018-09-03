@@ -1,2 +1,4 @@
 /** @type {Winelog} */
-const windisk = require("./build/Release/winelog.node");
+const winelog = require("./build/Release/winelog.node");
+
+winelog.readEventLog("Application");
