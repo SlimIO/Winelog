@@ -3,10 +3,12 @@
 #include <iostream>
 #include <stdio.h>
 #include <strsafe.h>
+#include <sstream>
 #include "napi.h"
 
 #define MAX_TIMESTAMP_LEN 23 + 1 // mm/dd/yyyy hh:mm:ss.mmm
 #define MAX_RECORD_BUFFER_SIZE  0x10000 // 64K
+#define EVENTLOG_PATH "\\System32\\Winevt\\Logs\\"
 
 using namespace std;
 using namespace Napi;
@@ -113,10 +115,19 @@ Value readEventLog(const CallbackInfo& info) {
         return env.Null();
     }
 
+    // Retrieve Windows path!
+    char winRootPath[MAX_PATH];
+	GetWindowsDirectoryA(winRootPath, MAX_PATH);
+
     // Retrieve log name!
     string logName = info[0].As<String>().Utf8Value();
     LPCSTR providerName = logName.c_str();
-    LPCSTR resourceDDL = "";
+    stringstream ss;
+    ss << winRootPath << EVENTLOG_PATH << logName << ".evtx";
+    string logRoot = ss.str();
+    LPCSTR resourceDDL = logRoot.c_str();
+
+    cout << "ressourceDDL: " << resourceDDL << endl;
     Array ret = Array::New(env);
 
     // Open provided Event Log
@@ -189,7 +200,7 @@ Value readEventLog(const CallbackInfo& info) {
 
                 LPCSTR eventCategory = getMessageString(hResources, record->EventCategory, 0, NULL);
                 if (eventCategory) {
-                    wprintf(L"event category: %s", eventCategory);
+                    cout << "event category" << eventCategory << endl;
                     eventCategory = NULL;
                 }
                 
@@ -207,8 +218,12 @@ Value readEventLog(const CallbackInfo& info) {
 
     // GOTO cleanup
     cleanup:
-        if (hEventLog) CloseEventLog(hEventLog);
-        if (pBuffer) free(pBuffer);
+    if (hEventLog) {
+        CloseEventLog(hEventLog);
+    }
+    if (pBuffer) {
+        free(pBuffer);
+    }
     
     return ret;
 }
