@@ -5,6 +5,9 @@
             "sources": [
                 "winelog.cpp"
             ],
+            "libraries": [
+                "Wevtapi.lib"
+            ],
             "include_dirs": [
                 "include",
                 "<!@(node -p \"require('node-addon-api').include\")"

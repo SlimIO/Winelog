@@ -1,14 +1,26 @@
 /** @type {Winelog} */
 const winelog = require("./build/Release/winelog.node");
 
-console.time("readEventLog");
+console.time("Application");
 const appLogs = winelog.readEventLog("Application");
-console.timeEnd("readEventLog");
-for (const log of appLogs) {
-    console.log(log);
-    console.log(new Date(log.timeGenerated * 1000));
-    break;
-}
+console.timeEnd("Application");
+// for (const log of appLogs) {
+//     console.log(log);
+//     break;
+// }
 
-const securityLogs = winelog.readEventLog("Security");
-console.log(securityLogs);
+// console.time("Security");
+// const securityLogs = winelog.readEventLog("Security");
+// console.timeEnd("Security");
+// for (const log of securityLogs) {
+//     console.log(log);
+//     break;
+// }
+
+// console.time("System");
+// const sysLogs = winelog.readEventLog("System");
+// console.timeEnd("System");
+// for (const log of sysLogs) {
+//     console.log(log);
+//     break;
+// }
