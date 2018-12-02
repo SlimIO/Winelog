@@ -23,6 +23,11 @@ const char* pEventTypeNames[] = {
     "Audit Failure"
 };
 
+struct LogRow {
+    LPCWSTR name;
+    LPCWSTR channel;
+};
+
 /*
  * Retrieve last message error with code of GetLastError()
  */
@@ -47,7 +52,7 @@ std::wstring s2ws(const std::string& s) {
     return r;
 }
 
-DWORD PrintEventValues(EVT_HANDLE hEvent) {
+DWORD PrintEventValues(EVT_HANDLE hEvent, LogRow *row) {
     DWORD status = ERROR_SUCCESS;
     EVT_HANDLE hContext = NULL;
     DWORD dwBufferSize = 0;
@@ -58,7 +63,7 @@ DWORD PrintEventValues(EVT_HANDLE hEvent) {
         L"Event/System/Provider/@Name",
         L"Event/System/Channel"
     };
-    DWORD count = sizeof(ppValues)/sizeof(LPWSTR);
+    DWORD count = sizeof(ppValues) / sizeof(LPWSTR);
 
     // Identify the components of the event that you want to render. In this case,
     // render the provider's name and channel from the system section of the event.
@@ -94,22 +99,23 @@ DWORD PrintEventValues(EVT_HANDLE hEvent) {
     }
 
     // Print the selected values.
-    wprintf(L"\nProvider Name: %s\n", pRenderedValues[0].StringVal);
-    wprintf(L"Channel: %s\n", (EvtVarTypeNull == pRenderedValues[1].Type) ? L"" : pRenderedValues[1].StringVal);
+    row->name = pRenderedValues[0].StringVal;
+    row->channel = (EvtVarTypeNull == pRenderedValues[1].Type) ? L"" : pRenderedValues[1].StringVal;
 
-cleanup:
-
-    if (hContext)
+    cleanup:
+    if (hContext) {
         EvtClose(hContext);
+    }
 
-    if (pRenderedValues)
+    if (pRenderedValues) {
         free(pRenderedValues);
+    }
 
     return status;
 }
 
 // Enumerate all the events in the result set. 
-DWORD PrintResults(EVT_HANDLE hResults) {
+DWORD PrintResults(EVT_HANDLE hResults, vector<LogRow> *logs) {
     DWORD status = ERROR_SUCCESS;
     EVT_HANDLE hEvents[ARRAY_SIZE];
     DWORD dwReturned = 0;
@@ -126,7 +132,9 @@ DWORD PrintResults(EVT_HANDLE hResults) {
         // For each event, call the PrintEvent function which renders the
         // event for display. PrintEvent is shown in RenderingEvents.
         for (DWORD i = 0; i < dwReturned; i++) {
-            if (ERROR_SUCCESS == (status = PrintEventValues(hEvents[i]))) {
+            LogRow row;
+            if (ERROR_SUCCESS == (status = PrintEventValues(hEvents[i], &row))) {
+                logs->push_back(row);
                 EvtClose(hEvents[i]);
                 hEvents[i] = NULL;
             }
@@ -154,6 +162,7 @@ DWORD PrintResults(EVT_HANDLE hResults) {
  */
 Value readEventLog(const CallbackInfo& info) {
     Env env = info.Env();
+    vector<LogRow> logs;
     DWORD status = ERROR_SUCCESS;
     EVT_HANDLE hResults = NULL;
 
@@ -203,18 +212,11 @@ Value readEventLog(const CallbackInfo& info) {
         goto cleanup;
     }
 
-    cout << "IS GOOD! " << endl;
-
-    // DWORD numberOfRecords = 0;
-    // bool success = GetNumberOfEventLogRecords(hResults, &numberOfRecords);
-    // if (!success) {
-    //     stringstream error;
-    //     error << "GetNumberOfEventLogRecords failed with code: " << GetLastError() << ", message: " << getLastErrorMessage() << endl;
-    //     Error::New(env, error.str()).ThrowAsJavaScriptException();
-    // }
-    // cout << "Number of event log records: " << numberOfRecords << endl;
-
-    PrintResults(hResults);
+    PrintResults(hResults, &logs);
+    for (size_t i = 0; i < logs.size(); i++) {
+        LogRow row = logs.at(i);
+        wprintf(L"name: %s\n", row.name);
+    }
 
     cleanup:
     if (hResults) {
