@@ -52,7 +52,7 @@ std::wstring s2ws(const std::string& s) {
     return r;
 }
 
-DWORD PrintEventValues(EVT_HANDLE hEvent, LogRow *row) {
+DWORD GetEventValues(EVT_HANDLE hEvent, LogRow *row) {
     DWORD status = ERROR_SUCCESS;
     EVT_HANDLE hContext = NULL;
     DWORD dwBufferSize = 0;
@@ -115,7 +115,7 @@ DWORD PrintEventValues(EVT_HANDLE hEvent, LogRow *row) {
 }
 
 // Enumerate all the events in the result set. 
-DWORD PrintResults(EVT_HANDLE hResults, vector<LogRow> *logs) {
+DWORD GetEventLogsRow(EVT_HANDLE hResults, vector<LogRow> *logs) {
     DWORD status = ERROR_SUCCESS;
     EVT_HANDLE hEvents[ARRAY_SIZE];
     DWORD dwReturned = 0;
@@ -133,7 +133,7 @@ DWORD PrintResults(EVT_HANDLE hResults, vector<LogRow> *logs) {
         // event for display. PrintEvent is shown in RenderingEvents.
         for (DWORD i = 0; i < dwReturned; i++) {
             LogRow row;
-            if (ERROR_SUCCESS == (status = PrintEventValues(hEvents[i], &row))) {
+            if (ERROR_SUCCESS == (status = GetEventValues(hEvents[i], &row))) {
                 logs->push_back(row);
                 EvtClose(hEvents[i]);
                 hEvents[i] = NULL;
@@ -212,7 +212,7 @@ Value readEventLog(const CallbackInfo& info) {
         goto cleanup;
     }
 
-    PrintResults(hResults, &logs);
+    GetEventLogsRow(hResults, &logs);
     for (size_t i = 0; i < logs.size(); i++) {
         LogRow row = logs.at(i);
         wprintf(L"name: %s\n", row.name);
@@ -228,9 +228,6 @@ Value readEventLog(const CallbackInfo& info) {
 
 // Initialize Native Addon
 Object Init(Env env, Object exports) {
-
-    // Setup methods
-    // TODO: Launch with AsyncWorker to avoid event loop starvation
     exports.Set("readEventLog", Function::New(env, readEventLog));
 
     return exports;
