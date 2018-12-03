@@ -3,6 +3,11 @@
   "version": "1.0.0",
   "description": "Windows Disk low level binding",
   "main": "index.js",
+  "husky": {
+    "hooks": {
+      "commit-msg": "commitlint -E HUSKY_GIT_PARAMS"
+    }
+  },
   "scripts": {
     "prepublishOnly": "pkg-ok",
     "prebuilds": "prebuildify --napi",
