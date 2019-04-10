@@ -21,8 +21,20 @@
     "type": "git",
     "url": "git+https://github.com/SlimIO/Winelog.git"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+      "SlimIO",
+      "Windows",
+      "Events",
+      "Logs",
+      "Binding",
+      "NAPI",
+      "Microsoft",
+      "EventLog"
+  ],
+  "engines": {
+      "node": ">=10"
+  },
+  "author": "SlimIO",
   "license": "MIT",
   "gypfile": true,
   "bugs": {
