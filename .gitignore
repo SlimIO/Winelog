@@ -64,3 +64,5 @@ build
 .exe
 .obj
 .vscode
+jsdoc/
+docs/
