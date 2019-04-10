@@ -1,25 +1,33 @@
 # Winelog
+![version](https://img.shields.io/badge/dynamic/json.svg?url=https://raw.githubusercontent.com/SlimIO/Winelog/master/package.json&query=$.version&label=Version)
+![N-API](https://img.shields.io/badge/N--API-v3-green.svg)
+[![Maintenance](https://img.shields.io/badge/Maintained%3F-yes-green.svg)](https://github.com/SlimIO/Winservices/commit-activity)
+[![GitHub license](https://img.shields.io/github/license/Naereen/StrapDown.js.svg)](https://github.com/SlimIO/Nixmem/blob/master/LICENSE)
+![2DEP](https://img.shields.io/badge/Dependencies-2-yellow.svg)
+
 Windows Events log reader - Node.JS low-level binding
 
-## Requirement
+## Requirements
+- Node.js v10 or higher
 
-- Windows build tools
-- Node-gyp
+## Getting Started
 
-Take a look at: https://www.npmjs.com/package/windows-build-tools
-
-## Starter guide
-
-To setup the project on your computer
+This package is available in the Node Package Repository and can be easily installed with [npm](https://docs.npmjs.com/getting-started/what-is-npm) or [yarn](https://yarnpkg.com).
 
 ```bash
-$ npm install
-$ node-gyp configure
-$ node-gyp build
+$ npm i @slimio/winelog
+# or
+$ yarn add @slimio/winelog
 ```
 
-## TODO
+## Usage example
+TBC
 
-- Prepare npm package (export with bindings).
-- Add prebuilt (prebuildify)
-- Add AsyncWorker for all methods and return Promise Object!
+## API
+TBC
+
+## Contribution Guidelines
+To contribute to the project, please read the [code of conduct](https://github.com/SlimIO/Governance/blob/master/COC_POLICY.md) and the guide for [N-API compilation](https://github.com/SlimIO/Governance/blob/master/docs/native_addons.md).
+
+## License
+MIT
