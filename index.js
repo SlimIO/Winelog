@@ -20,7 +20,7 @@ const winelog = require("./build/Release/winelog.node");
 console.time("System");
 const sysLogs = winelog.readEventLog("System");
 console.timeEnd("System");
-for (const log of sysLogs) {
-    console.log(log);
-    break;
-}
+// for (const log of sysLogs) {
+//     console.log(log);
+//     break;
+// }

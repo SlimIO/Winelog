@@ -14,18 +14,13 @@
 using namespace std;
 using namespace Napi;
 
-// Events types name
-const char* pEventTypeNames[] = {
-    "Error",
-    "Warning",
-    "Informational",
-    "Audit Success",
-    "Audit Failure"
-};
-
 struct LogRow {
     LPCWSTR name;
     LPCWSTR channel;
+    LPCWSTR systemTime;
+    uint8_t level;
+    uint16_t task;
+    uint64_t keywords;
 };
 
 /*
@@ -39,12 +34,12 @@ string getLastErrorMessage() {
 }
 
 /*
- * Convert std::string to std::wstring 
+ * Convert std::string to std::wstring
  */
 std::wstring s2ws(const std::string& s) {
     int len;
     int slength = (int)s.length() + 1;
-    len = MultiByteToWideChar(CP_ACP, 0, s.c_str(), slength, 0, 0); 
+    len = MultiByteToWideChar(CP_ACP, 0, s.c_str(), slength, 0, 0);
     wchar_t* buf = new wchar_t[len];
     MultiByteToWideChar(CP_ACP, 0, s.c_str(), slength, buf, len);
     std::wstring r(buf);
@@ -61,7 +56,11 @@ DWORD GetEventValues(EVT_HANDLE hEvent, LogRow *row) {
     PEVT_VARIANT pRenderedValues = NULL;
     LPWSTR ppValues[] = {
         L"Event/System/Provider/@Name",
-        L"Event/System/Channel"
+        L"Event/System/Channel",
+        L"Event/System/Level",
+        L"Event/System/Task",
+        L"Event/System/Keywords",
+        L"Event/System/TimeCreated/@SystemTime",
     };
     DWORD count = sizeof(ppValues) / sizeof(LPWSTR);
 
@@ -76,7 +75,7 @@ DWORD GetEventValues(EVT_HANDLE hEvent, LogRow *row) {
     }
 
     // The function returns an array of variant values for each element or attribute that
-    // you want to retrieve from the event. The values are returned in the same order as 
+    // you want to retrieve from the event. The values are returned in the same order as
     // you requested them.
     if (!EvtRender(hContext, hEvent, EvtRenderEventValues, dwBufferSize, pRenderedValues, &dwBufferUsed, &dwPropertyCount)) {
         if (ERROR_INSUFFICIENT_BUFFER == (status = GetLastError())) {
@@ -101,6 +100,10 @@ DWORD GetEventValues(EVT_HANDLE hEvent, LogRow *row) {
     // Print the selected values.
     row->name = pRenderedValues[0].StringVal;
     row->channel = (EvtVarTypeNull == pRenderedValues[1].Type) ? L"" : pRenderedValues[1].StringVal;
+    row->level = (EvtVarTypeNull == pRenderedValues[2].Type) ? 0 : pRenderedValues[2].ByteVal;
+    row->task = (EvtVarTypeNull == pRenderedValues[3].Type) ? 0 : pRenderedValues[3].UInt16Val;
+    row->keywords = pRenderedValues[4].UInt64Val;
+    row->systemTime = pRenderedValues[5].StringVal;
 
     cleanup:
     if (hContext) {
@@ -114,7 +117,7 @@ DWORD GetEventValues(EVT_HANDLE hEvent, LogRow *row) {
     return status;
 }
 
-// Enumerate all the events in the result set. 
+// Enumerate all the events in the result set.
 DWORD GetEventLogsRow(EVT_HANDLE hResults, vector<LogRow> *logs) {
     DWORD status = ERROR_SUCCESS;
     EVT_HANDLE hEvents[ARRAY_SIZE];
@@ -156,7 +159,7 @@ DWORD GetEventLogsRow(EVT_HANDLE hResults, vector<LogRow> *logs) {
 
 /*
  * Binding for retrieving drive performance
- * 
+ *
  * @doc: https://docs.microsoft.com/en-us/windows/desktop/eventlog/querying-for-event-source-messages
  * @doc: https://docs.microsoft.com/en-us/windows/desktop/wes/rendering-events
  */
@@ -199,7 +202,7 @@ Value readEventLog(const CallbackInfo& info) {
             cout << "The channel was not found." << endl;
         }
         else if (ERROR_EVT_INVALID_QUERY == status) {
-            // You can call the EvtGetExtendedStatus function to try to get 
+            // You can call the EvtGetExtendedStatus function to try to get
             // additional information as to what is wrong with the query.
             cout << "The query is not valid." << endl;
         }
@@ -216,13 +219,22 @@ Value readEventLog(const CallbackInfo& info) {
     for (size_t i = 0; i < logs.size(); i++) {
         LogRow row = logs.at(i);
         wprintf(L"name: %s\n", row.name);
+        wprintf(L"channel: %s\n", row.channel);
+        // wprintf(L"system time: %s\n", row.systemTime);
+        printf("level: %u\n", row.level);
+        printf("task: %hu\n", row.task);
+        printf("keywords: 0x%I64x\n", row.keywords);
+        cout << "--------------\n";
+        if (i > 3) {
+            break;
+        }
     }
 
     cleanup:
     if (hResults) {
         EvtClose(hResults);
     }
-    
+
     return env.Null();
 }
 
