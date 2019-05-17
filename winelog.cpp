@@ -16,13 +16,13 @@ using namespace std;
 using namespace Napi;
 
 struct LogRow {
-    DWORD eventID;
-    WCHAR providerGUID[50];
-    WCHAR ActivityID[50];
-    WCHAR RelatedActivityID[50];
-    LPCWSTR providerName;
+    uint16_t eventID;
+    std::string providerGUID;
+    std::string ActivityID;
+    std::string RelatedActivityID;
+    const wchar_t* providerName;
     LPCWSTR channel;
-    LPCWSTR computer;
+    const wchar_t* computer;
     LPSTR securityUserID;
     std::string time;
     uint8_t level;
@@ -59,6 +59,20 @@ std::wstring s2ws(const std::string& s) {
     return r;
 }
 
+/*
+ * Function to Convert GUID to std::string
+ */
+std::string guidToString(GUID guid) {
+    char guid_cstr[39];
+    snprintf(guid_cstr, sizeof(guid_cstr),
+        "{%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x}",
+        guid.Data1, guid.Data2, guid.Data3,
+        guid.Data4[0], guid.Data4[1], guid.Data4[2], guid.Data4[3],
+        guid.Data4[4], guid.Data4[5], guid.Data4[6], guid.Data4[7]);
+
+    return std::string(guid_cstr);
+}
+
 DWORD GetEventValues(EVT_HANDLE hEvent, LogRow *row) {
     DWORD status = ERROR_SUCCESS;
     EVT_HANDLE hContext = NULL;
@@ -68,10 +82,8 @@ DWORD GetEventValues(EVT_HANDLE hEvent, LogRow *row) {
     PEVT_VARIANT pRenderedValues = NULL;
     LPSTR pwsSid = NULL;
     ULONGLONG ullTimeStamp = 0;
-    ULONGLONG ullNanoseconds = 0;
     SYSTEMTIME st;
     FILETIME ft;
-    char dateBuffer[256];
 
     // Identify the components of the event that you want to render. In this case,
     // render the system section of the event.
@@ -108,15 +120,18 @@ DWORD GetEventValues(EVT_HANDLE hEvent, LogRow *row) {
         }
     }
 
-    row->providerName = pRenderedValues[EvtSystemProviderName].StringVal;
-    row->eventID = pRenderedValues[EvtSystemEventID].UInt16Val;
+    row->providerName = std::wstring(pRenderedValues[EvtSystemProviderName].StringVal).c_str();
+
+    uint16_t EventID = 0;
+    EventID = pRenderedValues[EvtSystemEventID].UInt16Val;
     if (EvtVarTypeNull != pRenderedValues[EvtSystemQualifiers].Type) {
-        row->eventID = MAKELONG(pRenderedValues[EvtSystemEventID].UInt16Val, pRenderedValues[EvtSystemQualifiers].UInt16Val);
+        EventID = MAKELONG(pRenderedValues[EvtSystemEventID].UInt16Val, pRenderedValues[EvtSystemQualifiers].UInt16Val);
     }
+    row->eventID = EventID;
 
     // Print the values from the System section of the element.
     if (NULL != pRenderedValues[EvtSystemProviderGuid].GuidVal) {
-        StringFromGUID2(*(pRenderedValues[EvtSystemProviderGuid].GuidVal), row->providerGUID, sizeof(row->providerGUID) / sizeof(WCHAR));
+        row->providerGUID = guidToString(*(pRenderedValues[EvtSystemProviderGuid].GuidVal));
     }
 
     row->version = (EvtVarTypeNull == pRenderedValues[EvtSystemVersion].Type) ? 0 : pRenderedValues[EvtSystemVersion].ByteVal;
@@ -128,23 +143,25 @@ DWORD GetEventValues(EVT_HANDLE hEvent, LogRow *row) {
     row->processID = pRenderedValues[EvtSystemProcessID].UInt32Val;
     row->threadID = pRenderedValues[EvtSystemThreadID].UInt32Val;
     row->channel = (EvtVarTypeNull == pRenderedValues[EvtSystemChannel].Type) ? L"" : pRenderedValues[EvtSystemChannel].StringVal;
-    row->computer = pRenderedValues[EvtSystemComputer].StringVal;
+    row->computer = std::wstring(pRenderedValues[EvtSystemComputer].StringVal).c_str();
 
     ullTimeStamp = pRenderedValues[EvtSystemTimeCreated].FileTimeVal;
     ft.dwHighDateTime = (DWORD)((ullTimeStamp >> 32) & 0xFFFFFFFF);
     ft.dwLowDateTime = (DWORD)(ullTimeStamp & 0xFFFFFFFF);
     FileTimeToSystemTime(&ft, &st);
+
+    char dateBuffer[256];
     sprintf(dateBuffer,
         "%d-%02d-%02d %02d:%02d:%02d.%03d",
         st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
     row->time = dateBuffer;
 
     if (EvtVarTypeNull != pRenderedValues[EvtSystemActivityID].Type) {
-        StringFromGUID2(*(pRenderedValues[EvtSystemActivityID].GuidVal), row->ActivityID, sizeof(row->ActivityID) / sizeof(WCHAR));
+        row->ActivityID = guidToString(*(pRenderedValues[EvtSystemActivityID].GuidVal));
     }
 
     if (EvtVarTypeNull != pRenderedValues[EvtSystemRelatedActivityID].Type) {
-        StringFromGUID2(*(pRenderedValues[EvtSystemRelatedActivityID].GuidVal), row->RelatedActivityID, sizeof(row->RelatedActivityID) / sizeof(WCHAR));
+        row->RelatedActivityID = guidToString(*(pRenderedValues[EvtSystemRelatedActivityID].GuidVal));
     }
 
     if (EvtVarTypeNull != pRenderedValues[EvtSystemUserID].Type) {
@@ -154,13 +171,13 @@ DWORD GetEventValues(EVT_HANDLE hEvent, LogRow *row) {
         }
     }
 
-cleanup:
-
-    if (hContext)
+    cleanup:
+    if (hContext) {
         EvtClose(hContext);
-
-    if (pRenderedValues)
+    }
+    if (pRenderedValues) {
         free(pRenderedValues);
+    }
 
     return status;
 }
@@ -216,6 +233,7 @@ Value readEventLog(const CallbackInfo& info) {
     vector<LogRow> logs;
     DWORD status = ERROR_SUCCESS;
     EVT_HANDLE hResults = NULL;
+    Napi::Array ret = Napi::Array::New(env);
 
     // Check argument length!
     if (info.Length() < 1) {
@@ -265,14 +283,14 @@ Value readEventLog(const CallbackInfo& info) {
 
     GetEventLogsRow(hResults, &logs);
     for (size_t i = 0; i < logs.size(); i++) {
+        Napi::Object jsRow = Napi::Object::New(env);
+        ret[i] = jsRow;
+
         LogRow row = logs.at(i);
-        wprintf(L"name: %s\n", row.providerName);
-        wprintf(L"channel: %s\n", row.channel);
-        printf("level: %u\n", row.level);
-        printf("task: %hu\n", row.task);
-        printf("keywords: 0x%I64x\n", row.keywords);
-        cout << "time: " << row.time << "\n";
-        cout << "--------------\n";
+        jsRow.Set("eventId", row.eventID);
+        jsRow.Set("providerName", (const char*) row.providerName);
+        jsRow.Set("computer", (const char*) row.computer);
+        jsRow.Set("timeCreated", row.time);
         if (i > 3) {
             break;
         }
@@ -283,7 +301,7 @@ Value readEventLog(const CallbackInfo& info) {
         EvtClose(hResults);
     }
 
-    return env.Null();
+    return ret;
 }
 
 // Initialize Native Addon
