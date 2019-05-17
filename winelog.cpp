@@ -1,5 +1,6 @@
 #include <windows.h>
 #include <winevt.h>
+#include <sddl.h>
 #include <string>
 #include <iostream>
 #include <sstream>
@@ -15,12 +16,23 @@ using namespace std;
 using namespace Napi;
 
 struct LogRow {
-    LPCWSTR name;
+    DWORD eventID;
+    WCHAR providerGUID[50];
+    WCHAR ActivityID[50];
+    WCHAR RelatedActivityID[50];
+    LPCWSTR providerName;
     LPCWSTR channel;
-    LPCWSTR systemTime;
+    LPCWSTR computer;
+    LPSTR securityUserID;
+    std::string time;
     uint8_t level;
+    uint8_t version;
+    uint8_t opcode;
     uint16_t task;
+    uint32_t processID;
+    uint32_t threadID;
     uint64_t keywords;
+    uint64_t eventRecordID;
 };
 
 /*
@@ -54,33 +66,32 @@ DWORD GetEventValues(EVT_HANDLE hEvent, LogRow *row) {
     DWORD dwBufferUsed = 0;
     DWORD dwPropertyCount = 0;
     PEVT_VARIANT pRenderedValues = NULL;
-    LPWSTR ppValues[] = {
-        L"Event/System/Provider/@Name",
-        L"Event/System/Channel",
-        L"Event/System/Level",
-        L"Event/System/Task",
-        L"Event/System/Keywords",
-        L"Event/System/TimeCreated/@SystemTime",
-    };
-    DWORD count = sizeof(ppValues) / sizeof(LPWSTR);
+    LPSTR pwsSid = NULL;
+    ULONGLONG ullTimeStamp = 0;
+    ULONGLONG ullNanoseconds = 0;
+    SYSTEMTIME st;
+    FILETIME ft;
+    char dateBuffer[256];
 
     // Identify the components of the event that you want to render. In this case,
-    // render the provider's name and channel from the system section of the event.
-    // To get user data from the event, you can specify an expression such as
-    // L"Event/EventData/Data[@Name=\"<data name goes here>\"]".
-    hContext = EvtCreateRenderContext(count, (LPCWSTR*)ppValues, EvtRenderContextValues);
+    // render the system section of the event.
+    hContext = EvtCreateRenderContext(0, NULL, EvtRenderContextSystem);
     if (NULL == hContext) {
         wprintf(L"EvtCreateRenderContext failed with %lu\n", status = GetLastError());
         goto cleanup;
     }
 
-    // The function returns an array of variant values for each element or attribute that
-    // you want to retrieve from the event. The values are returned in the same order as
-    // you requested them.
+    // When you render the user data or system section of the event, you must specify
+    // the EvtRenderEventValues flag. The function returns an array of variant values 
+    // for each element in the user data or system section of the event. For user data
+    // or event data, the values are returned in the same order as the elements are 
+    // defined in the event. For system data, the values are returned in the order defined
+    // in the EVT_SYSTEM_PROPERTY_ID enumeration.
     if (!EvtRender(hContext, hEvent, EvtRenderEventValues, dwBufferSize, pRenderedValues, &dwBufferUsed, &dwPropertyCount)) {
         if (ERROR_INSUFFICIENT_BUFFER == (status = GetLastError())) {
             dwBufferSize = dwBufferUsed;
             pRenderedValues = (PEVT_VARIANT)malloc(dwBufferSize);
+
             if (pRenderedValues) {
                 EvtRender(hContext, hEvent, EvtRenderEventValues, dwBufferSize, pRenderedValues, &dwBufferUsed, &dwPropertyCount);
             }
@@ -97,22 +108,59 @@ DWORD GetEventValues(EVT_HANDLE hEvent, LogRow *row) {
         }
     }
 
-    // Print the selected values.
-    row->name = pRenderedValues[0].StringVal;
-    row->channel = (EvtVarTypeNull == pRenderedValues[1].Type) ? L"" : pRenderedValues[1].StringVal;
-    row->level = (EvtVarTypeNull == pRenderedValues[2].Type) ? 0 : pRenderedValues[2].ByteVal;
-    row->task = (EvtVarTypeNull == pRenderedValues[3].Type) ? 0 : pRenderedValues[3].UInt16Val;
-    row->keywords = pRenderedValues[4].UInt64Val;
-    row->systemTime = pRenderedValues[5].StringVal;
+    row->providerName = pRenderedValues[EvtSystemProviderName].StringVal;
+    row->eventID = pRenderedValues[EvtSystemEventID].UInt16Val;
+    if (EvtVarTypeNull != pRenderedValues[EvtSystemQualifiers].Type) {
+        row->eventID = MAKELONG(pRenderedValues[EvtSystemEventID].UInt16Val, pRenderedValues[EvtSystemQualifiers].UInt16Val);
+    }
 
-    cleanup:
-    if (hContext) {
+    // Print the values from the System section of the element.
+    if (NULL != pRenderedValues[EvtSystemProviderGuid].GuidVal) {
+        StringFromGUID2(*(pRenderedValues[EvtSystemProviderGuid].GuidVal), row->providerGUID, sizeof(row->providerGUID) / sizeof(WCHAR));
+    }
+
+    row->version = (EvtVarTypeNull == pRenderedValues[EvtSystemVersion].Type) ? 0 : pRenderedValues[EvtSystemVersion].ByteVal;
+    row->level = (EvtVarTypeNull == pRenderedValues[EvtSystemVersion].Type) ? 0 : pRenderedValues[EvtSystemVersion].ByteVal;
+    row->task = (EvtVarTypeNull == pRenderedValues[EvtSystemTask].Type) ? 0 : pRenderedValues[EvtSystemTask].UInt16Val;
+    row->opcode = (EvtVarTypeNull == pRenderedValues[EvtSystemOpcode].Type) ? 0 : pRenderedValues[EvtSystemOpcode].ByteVal;
+    row->keywords = pRenderedValues[EvtSystemKeywords].UInt64Val;
+    row->eventRecordID = pRenderedValues[EvtSystemEventRecordId].UInt64Val;
+    row->processID = pRenderedValues[EvtSystemProcessID].UInt32Val;
+    row->threadID = pRenderedValues[EvtSystemThreadID].UInt32Val;
+    row->channel = (EvtVarTypeNull == pRenderedValues[EvtSystemChannel].Type) ? L"" : pRenderedValues[EvtSystemChannel].StringVal;
+    row->computer = pRenderedValues[EvtSystemComputer].StringVal;
+
+    ullTimeStamp = pRenderedValues[EvtSystemTimeCreated].FileTimeVal;
+    ft.dwHighDateTime = (DWORD)((ullTimeStamp >> 32) & 0xFFFFFFFF);
+    ft.dwLowDateTime = (DWORD)(ullTimeStamp & 0xFFFFFFFF);
+    FileTimeToSystemTime(&ft, &st);
+    sprintf(dateBuffer,
+        "%d-%02d-%02d %02d:%02d:%02d.%03d",
+        st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+    row->time = dateBuffer;
+
+    if (EvtVarTypeNull != pRenderedValues[EvtSystemActivityID].Type) {
+        StringFromGUID2(*(pRenderedValues[EvtSystemActivityID].GuidVal), row->ActivityID, sizeof(row->ActivityID) / sizeof(WCHAR));
+    }
+
+    if (EvtVarTypeNull != pRenderedValues[EvtSystemRelatedActivityID].Type) {
+        StringFromGUID2(*(pRenderedValues[EvtSystemRelatedActivityID].GuidVal), row->RelatedActivityID, sizeof(row->RelatedActivityID) / sizeof(WCHAR));
+    }
+
+    if (EvtVarTypeNull != pRenderedValues[EvtSystemUserID].Type) {
+        if (ConvertSidToStringSidA(pRenderedValues[EvtSystemUserID].SidVal, &pwsSid)) {
+            row->securityUserID = pwsSid;
+            LocalFree(pwsSid);
+        }
+    }
+
+cleanup:
+
+    if (hContext)
         EvtClose(hContext);
-    }
 
-    if (pRenderedValues) {
+    if (pRenderedValues)
         free(pRenderedValues);
-    }
 
     return status;
 }
@@ -218,12 +266,12 @@ Value readEventLog(const CallbackInfo& info) {
     GetEventLogsRow(hResults, &logs);
     for (size_t i = 0; i < logs.size(); i++) {
         LogRow row = logs.at(i);
-        wprintf(L"name: %s\n", row.name);
+        wprintf(L"name: %s\n", row.providerName);
         wprintf(L"channel: %s\n", row.channel);
-        // wprintf(L"system time: %s\n", row.systemTime);
         printf("level: %u\n", row.level);
         printf("task: %hu\n", row.task);
         printf("keywords: 0x%I64x\n", row.keywords);
+        cout << "time: " << row.time << "\n";
         cout << "--------------\n";
         if (i > 3) {
             break;
