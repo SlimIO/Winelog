@@ -1,6 +1,7 @@
 #include <windows.h>
 #include <winevt.h>
 #include <sddl.h>
+#include <comdef.h>
 #include <string>
 #include <iostream>
 #include <sstream>
@@ -20,9 +21,9 @@ struct LogRow {
     std::string providerGUID;
     std::string ActivityID;
     std::string RelatedActivityID;
-    const wchar_t* providerName;
-    LPCWSTR channel;
-    const wchar_t* computer;
+    const char* providerName;
+    const char* channel;
+    const char* computer;
     LPSTR securityUserID;
     std::string time;
     uint8_t level;
@@ -120,8 +121,8 @@ DWORD GetEventValues(EVT_HANDLE hEvent, LogRow *row) {
         }
     }
 
-    row->providerName = std::wstring(pRenderedValues[EvtSystemProviderName].StringVal).c_str();
-
+    row->providerName = _bstr_t((wchar_t*)pRenderedValues[EvtSystemProviderName].StringVal);
+    
     uint16_t EventID = 0;
     EventID = pRenderedValues[EvtSystemEventID].UInt16Val;
     if (EvtVarTypeNull != pRenderedValues[EvtSystemQualifiers].Type) {
@@ -142,8 +143,10 @@ DWORD GetEventValues(EVT_HANDLE hEvent, LogRow *row) {
     row->eventRecordID = pRenderedValues[EvtSystemEventRecordId].UInt64Val;
     row->processID = pRenderedValues[EvtSystemProcessID].UInt32Val;
     row->threadID = pRenderedValues[EvtSystemThreadID].UInt32Val;
-    row->channel = (EvtVarTypeNull == pRenderedValues[EvtSystemChannel].Type) ? L"" : pRenderedValues[EvtSystemChannel].StringVal;
-    row->computer = std::wstring(pRenderedValues[EvtSystemComputer].StringVal).c_str();
+
+    LPCWSTR channel = (EvtVarTypeNull == pRenderedValues[EvtSystemChannel].Type) ? L"" : pRenderedValues[EvtSystemChannel].StringVal;
+    row->channel = _bstr_t((wchar_t*) channel);
+    row->computer = _bstr_t((wchar_t*) pRenderedValues[EvtSystemComputer].StringVal);
 
     ullTimeStamp = pRenderedValues[EvtSystemTimeCreated].FileTimeVal;
     ft.dwHighDateTime = (DWORD)((ullTimeStamp >> 32) & 0xFFFFFFFF);
@@ -157,16 +160,16 @@ DWORD GetEventValues(EVT_HANDLE hEvent, LogRow *row) {
     row->time = dateBuffer;
 
     if (EvtVarTypeNull != pRenderedValues[EvtSystemActivityID].Type) {
-        row->ActivityID = guidToString(*(pRenderedValues[EvtSystemActivityID].GuidVal));
+        // row->ActivityID = guidToString(*(pRenderedValues[EvtSystemActivityID].GuidVal));
     }
 
     if (EvtVarTypeNull != pRenderedValues[EvtSystemRelatedActivityID].Type) {
-        row->RelatedActivityID = guidToString(*(pRenderedValues[EvtSystemRelatedActivityID].GuidVal));
+        // row->RelatedActivityID = guidToString(*(pRenderedValues[EvtSystemRelatedActivityID].GuidVal));
     }
 
     if (EvtVarTypeNull != pRenderedValues[EvtSystemUserID].Type) {
         if (ConvertSidToStringSidA(pRenderedValues[EvtSystemUserID].SidVal, &pwsSid)) {
-            row->securityUserID = pwsSid;
+            // row->securityUserID = pwsSid;
             LocalFree(pwsSid);
         }
     }
@@ -288,8 +291,8 @@ Value readEventLog(const CallbackInfo& info) {
 
         LogRow row = logs.at(i);
         jsRow.Set("eventId", row.eventID);
-        jsRow.Set("providerName", (const char*) row.providerName);
-        jsRow.Set("computer", (const char*) row.computer);
+        jsRow.Set("providerName", row.providerName);
+        jsRow.Set("computer", row.computer);
         jsRow.Set("timeCreated", row.time);
         if (i > 3) {
             break;
