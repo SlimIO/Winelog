@@ -19,12 +19,9 @@ using namespace Napi;
 struct LogRow {
     uint16_t eventID;
     std::string providerGUID;
-    std::string ActivityID;
-    std::string RelatedActivityID;
-    const char* providerName;
-    const char* channel;
-    const char* computer;
-    LPSTR securityUserID;
+    std::string providerName;
+    std::string channel;
+    std::string computer;
     std::string time;
     uint8_t level;
     uint8_t version;
@@ -81,14 +78,37 @@ DWORD GetEventValues(EVT_HANDLE hEvent, LogRow *row) {
     DWORD dwBufferUsed = 0;
     DWORD dwPropertyCount = 0;
     PEVT_VARIANT pRenderedValues = NULL;
-    LPSTR pwsSid = NULL;
+    LPWSTR ppValues[] = {
+        L"Event/System/Provider/@Name",
+        L"Event/System/Provider/@Guid",
+        L"Event/System/Provider/@EventSourceName",
+        L"Event/System/EventID",
+        L"Event/System/EventID/@Qualifiers",
+        L"Event/System/Version",
+        L"Event/System/Level",
+        L"Event/System/Task",
+        L"Event/System/Opcode",
+        L"Event/System/Keywords",
+        L"Event/System/TimeCreated/@SystemTime", // 10
+        L"Event/System/EventRecordID",
+        L"Event/System/Execution/@ProcessID",
+        L"Event/System/Execution/@ThreadID",
+        L"Event/System/Channel",
+        L"Event/System/Computer",
+        L"Event/System/Security/@UserID"
+    };
+    DWORD count = sizeof(ppValues) / sizeof(LPWSTR);
     ULONGLONG ullTimeStamp = 0;
     SYSTEMTIME st;
     FILETIME ft;
+    wchar_t* providerName;
+    wchar_t* channel;
+    wchar_t* computer;
+    char dateBuffer[256];
 
     // Identify the components of the event that you want to render. In this case,
     // render the system section of the event.
-    hContext = EvtCreateRenderContext(0, NULL, EvtRenderContextSystem);
+    hContext = EvtCreateRenderContext(count, (LPCWSTR*)ppValues, EvtRenderContextValues);
     if (NULL == hContext) {
         wprintf(L"EvtCreateRenderContext failed with %lu\n", status = GetLastError());
         goto cleanup;
@@ -121,58 +141,42 @@ DWORD GetEventValues(EVT_HANDLE hEvent, LogRow *row) {
         }
     }
 
-    row->providerName = _bstr_t((wchar_t*)pRenderedValues[EvtSystemProviderName].StringVal);
+    providerName = (wchar_t*) (EvtVarTypeNull == pRenderedValues[0].Type) ? L"" : pRenderedValues[0].StringVal;
+    row->providerName = std::string(_bstr_t(providerName));
     
     uint16_t EventID = 0;
-    EventID = pRenderedValues[EvtSystemEventID].UInt16Val;
-    if (EvtVarTypeNull != pRenderedValues[EvtSystemQualifiers].Type) {
-        EventID = MAKELONG(pRenderedValues[EvtSystemEventID].UInt16Val, pRenderedValues[EvtSystemQualifiers].UInt16Val);
+    EventID = pRenderedValues[3].UInt16Val;
+    if (EvtVarTypeNull != pRenderedValues[4].Type) {
+        EventID = MAKELONG(pRenderedValues[3].UInt16Val, pRenderedValues[4].UInt16Val);
     }
     row->eventID = EventID;
 
     // Print the values from the System section of the element.
-    if (NULL != pRenderedValues[EvtSystemProviderGuid].GuidVal) {
-        row->providerGUID = guidToString(*(pRenderedValues[EvtSystemProviderGuid].GuidVal));
+    if (NULL != pRenderedValues[1].GuidVal) {
+        row->providerGUID = guidToString(*(pRenderedValues[1].GuidVal));
     }
 
-    row->version = (EvtVarTypeNull == pRenderedValues[EvtSystemVersion].Type) ? 0 : pRenderedValues[EvtSystemVersion].ByteVal;
-    row->level = (EvtVarTypeNull == pRenderedValues[EvtSystemVersion].Type) ? 0 : pRenderedValues[EvtSystemVersion].ByteVal;
-    row->task = (EvtVarTypeNull == pRenderedValues[EvtSystemTask].Type) ? 0 : pRenderedValues[EvtSystemTask].UInt16Val;
-    row->opcode = (EvtVarTypeNull == pRenderedValues[EvtSystemOpcode].Type) ? 0 : pRenderedValues[EvtSystemOpcode].ByteVal;
-    row->keywords = pRenderedValues[EvtSystemKeywords].UInt64Val;
-    row->eventRecordID = pRenderedValues[EvtSystemEventRecordId].UInt64Val;
-    row->processID = pRenderedValues[EvtSystemProcessID].UInt32Val;
-    row->threadID = pRenderedValues[EvtSystemThreadID].UInt32Val;
+    row->version = (EvtVarTypeNull == pRenderedValues[5].Type) ? 0 : pRenderedValues[5].ByteVal;
+    row->level = (EvtVarTypeNull == pRenderedValues[6].Type) ? 0 : pRenderedValues[6].ByteVal;
+    row->task = (EvtVarTypeNull == pRenderedValues[7].Type) ? 0 : pRenderedValues[7].UInt16Val;
+    row->opcode = (EvtVarTypeNull == pRenderedValues[8].Type) ? 0 : pRenderedValues[8].ByteVal;
+    row->keywords = pRenderedValues[9].UInt64Val;
+    row->eventRecordID = pRenderedValues[11].UInt64Val;
+    row->processID = (EvtVarTypeNull == pRenderedValues[12].Type) ? 0 : pRenderedValues[12].UInt32Val;
+    row->threadID = (EvtVarTypeNull == pRenderedValues[13].Type) ? 0 : pRenderedValues[13].UInt32Val;
 
-    LPCWSTR channel = (EvtVarTypeNull == pRenderedValues[EvtSystemChannel].Type) ? L"" : pRenderedValues[EvtSystemChannel].StringVal;
-    row->channel = _bstr_t((wchar_t*) channel);
-    row->computer = _bstr_t((wchar_t*) pRenderedValues[EvtSystemComputer].StringVal);
+    channel = (wchar_t*) (EvtVarTypeNull == pRenderedValues[14].Type) ? L"" : pRenderedValues[14].StringVal;
+    row->channel = std::string(_bstr_t(channel));
+    computer = (wchar_t*) pRenderedValues[15].StringVal;
+    row->computer = std::string(_bstr_t(computer));
 
-    ullTimeStamp = pRenderedValues[EvtSystemTimeCreated].FileTimeVal;
+    ullTimeStamp = pRenderedValues[10].FileTimeVal;
     ft.dwHighDateTime = (DWORD)((ullTimeStamp >> 32) & 0xFFFFFFFF);
     ft.dwLowDateTime = (DWORD)(ullTimeStamp & 0xFFFFFFFF);
     FileTimeToSystemTime(&ft, &st);
-
-    char dateBuffer[256];
-    sprintf(dateBuffer,
-        "%d-%02d-%02d %02d:%02d:%02d.%03d",
+    sprintf(dateBuffer, "%d-%02d-%02d %02d:%02d:%02d.%03d",
         st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
-    row->time = dateBuffer;
-
-    if (EvtVarTypeNull != pRenderedValues[EvtSystemActivityID].Type) {
-        // row->ActivityID = guidToString(*(pRenderedValues[EvtSystemActivityID].GuidVal));
-    }
-
-    if (EvtVarTypeNull != pRenderedValues[EvtSystemRelatedActivityID].Type) {
-        // row->RelatedActivityID = guidToString(*(pRenderedValues[EvtSystemRelatedActivityID].GuidVal));
-    }
-
-    if (EvtVarTypeNull != pRenderedValues[EvtSystemUserID].Type) {
-        if (ConvertSidToStringSidA(pRenderedValues[EvtSystemUserID].SidVal, &pwsSid)) {
-            // row->securityUserID = pwsSid;
-            LocalFree(pwsSid);
-        }
-    }
+    row->time = string(dateBuffer);
 
     cleanup:
     if (hContext) {
@@ -236,7 +240,9 @@ Value readEventLog(const CallbackInfo& info) {
     vector<LogRow> logs;
     DWORD status = ERROR_SUCCESS;
     EVT_HANDLE hResults = NULL;
+    char winRootPath[MAX_PATH];
     Napi::Array ret = Napi::Array::New(env);
+    LogRow row;
 
     // Check argument length!
     if (info.Length() < 1) {
@@ -251,7 +257,6 @@ Value readEventLog(const CallbackInfo& info) {
     }
 
     // Retrieve Windows path!
-    char winRootPath[MAX_PATH];
 	GetWindowsDirectoryA(winRootPath, MAX_PATH);
 
     // Retrieve log name!
@@ -261,19 +266,19 @@ Value readEventLog(const CallbackInfo& info) {
     string logRoot = ss.str();
     wstring ws = s2ws(logRoot);
     LPCWSTR completeEventLogPath = ws.c_str();
-    wprintf(L"path %s\n", completeEventLogPath);
+    // wprintf(L"path %s\n", completeEventLogPath);
 
     // Open Log
     hResults = EvtQuery(NULL, completeEventLogPath, L"*", EvtQueryFilePath | EvtQueryReverseDirection);
     if (NULL == hResults) {
         status = GetLastError();
         if (ERROR_EVT_CHANNEL_NOT_FOUND == status) {
-            cout << "The channel was not found." << endl;
+            Error::New(env, "The channel was not found.").ThrowAsJavaScriptException();
         }
         else if (ERROR_EVT_INVALID_QUERY == status) {
             // You can call the EvtGetExtendedStatus function to try to get
             // additional information as to what is wrong with the query.
-            cout << "The query is not valid." << endl;
+            Error::New(env, "The query is not valid").ThrowAsJavaScriptException();
         }
         else {
             stringstream error;
@@ -289,14 +294,21 @@ Value readEventLog(const CallbackInfo& info) {
         Napi::Object jsRow = Napi::Object::New(env);
         ret[i] = jsRow;
 
-        LogRow row = logs.at(i);
+        SecureZeroMemory(&row, sizeof(LogRow));
+        row = logs.at(i);
         jsRow.Set("eventId", row.eventID);
         jsRow.Set("providerName", row.providerName);
+        jsRow.Set("providerGUID", row.providerGUID);
+        jsRow.Set("level", row.level);
+        jsRow.Set("task", row.task);
+        jsRow.Set("opcode", row.opcode);
+        jsRow.Set("keywords", row.keywords);
+        jsRow.Set("eventRecordId", row.eventRecordID);
+        jsRow.Set("processId", row.processID);
+        jsRow.Set("threadId", row.threadID);
+        jsRow.Set("channel", row.channel);
         jsRow.Set("computer", row.computer);
         jsRow.Set("timeCreated", row.time);
-        if (i > 3) {
-            break;
-        }
     }
 
     cleanup:
