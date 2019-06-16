@@ -1,3 +1,4 @@
 name = "winelog"
 version = "1.0.0"
+platform = "Windows"
 type = "NAPI"
