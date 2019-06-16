@@ -5,7 +5,7 @@
   "main": "index.js",
   "husky": {
     "hooks": {
-      "pre-push": "cross-env eslint index.js",
+      "pre-push": "cross-env eslint index.js && npm test",
       "commit-msg": "commitlint -E HUSKY_GIT_PARAMS"
     }
   },
