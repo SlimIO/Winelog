@@ -32,6 +32,14 @@
     "Microsoft",
     "EventLog"
   ],
+  "files": [
+    "index .js",
+    "index.d.ts",
+    "binding.gyp",
+    "winelog.cpp",
+    "src",
+    "include/*.h"
+  ],
   "engines": {
     "node": ">=10"
   },
