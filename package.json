@@ -41,7 +41,7 @@
     "include/*.h"
   ],
   "engines": {
-    "node": ">=10"
+    "node": ">=12"
   },
   "author": "SlimIO",
   "license": "MIT",
