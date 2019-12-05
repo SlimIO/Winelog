@@ -33,7 +33,7 @@
     "EventLog"
   ],
   "files": [
-    "index .js",
+    "index.js",
     "index.d.ts",
     "binding.gyp",
     "winelog.cpp",
