@@ -37,7 +37,6 @@
     "index.d.ts",
     "binding.gyp",
     "winelog.cpp",
-    "src",
     "include/*.h"
   ],
   "engines": {
