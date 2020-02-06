@@ -187,7 +187,7 @@ DWORD GetEventValues(EVT_HANDLE hEvent, LogRow *row) {
 }
 
 // Enumerate all the events in the result set.
-DWORD GetEventLogsRow(EVT_HANDLE hResults, std::vector<LogRow> *logs) {
+DWORD GetEventLogsRow(EVT_HANDLE hResults, Napi::Env env, Napi::Function *callback) {
     DWORD status = ERROR_SUCCESS;
     EVT_HANDLE hEvents[ARRAY_SIZE];
     DWORD dwReturned = 0;
@@ -205,8 +205,26 @@ DWORD GetEventLogsRow(EVT_HANDLE hResults, std::vector<LogRow> *logs) {
         // event for display. PrintEvent is shown in RenderingEvents.
         for (DWORD i = 0; i < dwReturned; i++) {
             LogRow row;
-            if (ERROR_SUCCESS == (status = GetEventValues(hEvents[i], &row))) {
-                logs->push_back(row);
+            status = GetEventValues(hEvents[i], &row);
+
+            if (ERROR_SUCCESS == status) {
+                Napi::Object jsRow = Napi::Object::New(env);
+
+                jsRow.Set("eventId", row.eventID);
+                jsRow.Set("providerName", row.providerName);
+                jsRow.Set("providerGUID", row.providerGUID);
+                jsRow.Set("level", row.level);
+                jsRow.Set("task", row.task);
+                jsRow.Set("opcode", row.opcode);
+                jsRow.Set("keywords", row.keywords);
+                jsRow.Set("eventRecordId", row.eventRecordID);
+                jsRow.Set("processId", row.processID);
+                jsRow.Set("threadId", row.threadID);
+                jsRow.Set("channel", row.channel);
+                jsRow.Set("computer", row.computer);
+                jsRow.Set("timeCreated", row.time);
+
+                callback->Call(env.Global(), { jsRow });
                 EvtClose(hEvents[i]);
                 hEvents[i] = NULL;
             }
@@ -234,12 +252,10 @@ DWORD GetEventLogsRow(EVT_HANDLE hResults, std::vector<LogRow> *logs) {
  */
 Napi::Value readEventLog(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    std::vector<LogRow> logs;
     DWORD status = ERROR_SUCCESS;
     EVT_HANDLE hResults = NULL;
     char winRootPath[MAX_PATH];
     Napi::Array ret = Napi::Array::New(env);
-    LogRow row;
 
     if (info.Length() < 1) {
         Napi::Error::New(env, "Wrong number of argument provided!").ThrowAsJavaScriptException();
@@ -253,14 +269,13 @@ Napi::Value readEventLog(const Napi::CallbackInfo& info) {
     // Retrieve Windows path!
 	GetWindowsDirectoryA(winRootPath, MAX_PATH);
 
-    // Retrieve log name!
     std::string logName = info[0].As<Napi::String>().Utf8Value();
+    Napi::Function logCallback = info[1].As<Napi::Function>();
     std::stringstream ss;
     ss << winRootPath << EVENTLOG_PATH << logName << ".evtx";
     std::string logRoot = ss.str();
     std::wstring ws = s2ws(logRoot);
     LPCWSTR completeEventLogPath = ws.c_str();
-    // wprintf(L"path %s\n", completeEventLogPath);
 
     // Open Log
     hResults = EvtQuery(NULL, completeEventLogPath, L"*", EvtQueryFilePath | EvtQueryReverseDirection);
@@ -283,27 +298,10 @@ Napi::Value readEventLog(const Napi::CallbackInfo& info) {
         goto cleanup;
     }
 
-    GetEventLogsRow(hResults, &logs);
-    for (size_t i = 0; i < logs.size(); i++) {
-        Napi::Object jsRow = Napi::Object::New(env);
-        ret[i] = jsRow;
-
-        SecureZeroMemory(&row, sizeof(LogRow));
-        row = logs.at(i);
-        jsRow.Set("eventId", row.eventID);
-        jsRow.Set("providerName", row.providerName);
-        jsRow.Set("providerGUID", row.providerGUID);
-        jsRow.Set("level", row.level);
-        jsRow.Set("task", row.task);
-        jsRow.Set("opcode", row.opcode);
-        jsRow.Set("keywords", row.keywords);
-        jsRow.Set("eventRecordId", row.eventRecordID);
-        jsRow.Set("processId", row.processID);
-        jsRow.Set("threadId", row.threadID);
-        jsRow.Set("channel", row.channel);
-        jsRow.Set("computer", row.computer);
-        jsRow.Set("timeCreated", row.time);
-    }
+    std::cout << "enter GetEventLogsRow" << "\n";
+    GetEventLogsRow(hResults, env, &logCallback);
+    logCallback.Call(env.Global(), { env.Null() });
+    std::cout << "exit GetEventLogsRow" << "\n";
 
     cleanup:
     if (hResults) {
