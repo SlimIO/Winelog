@@ -13,9 +13,6 @@
 #define ARRAY_SIZE 10
 #define TIMEOUT 1000  // 1 second; Set and use in place of INFINITE in EvtNext call
 
-using namespace std;
-using namespace Napi;
-
 struct LogRow {
     uint16_t eventID;
     std::string providerGUID;
@@ -36,11 +33,11 @@ struct LogRow {
 /*
  * Retrieve last message error with code of GetLastError()
  */
-string getLastErrorMessage() {
+std::string getLastErrorMessage() {
     char err[256];
     FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM, NULL, GetLastError(),
                   MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), err, 255, NULL);
-    return string(err);
+    return std::string(err);
 }
 
 /*
@@ -115,9 +112,9 @@ DWORD GetEventValues(EVT_HANDLE hEvent, LogRow *row) {
     }
 
     // When you render the user data or system section of the event, you must specify
-    // the EvtRenderEventValues flag. The function returns an array of variant values 
+    // the EvtRenderEventValues flag. The function returns an array of variant values
     // for each element in the user data or system section of the event. For user data
-    // or event data, the values are returned in the same order as the elements are 
+    // or event data, the values are returned in the same order as the elements are
     // defined in the event. For system data, the values are returned in the order defined
     // in the EVT_SYSTEM_PROPERTY_ID enumeration.
     if (!EvtRender(hContext, hEvent, EvtRenderEventValues, dwBufferSize, pRenderedValues, &dwBufferUsed, &dwPropertyCount)) {
@@ -143,7 +140,7 @@ DWORD GetEventValues(EVT_HANDLE hEvent, LogRow *row) {
 
     providerName = (wchar_t*) (EvtVarTypeNull == pRenderedValues[0].Type) ? L"" : pRenderedValues[0].StringVal;
     row->providerName = std::string(_bstr_t(providerName));
-    
+
     uint16_t EventID = 0;
     EventID = pRenderedValues[3].UInt16Val;
     if (EvtVarTypeNull != pRenderedValues[4].Type) {
@@ -176,7 +173,7 @@ DWORD GetEventValues(EVT_HANDLE hEvent, LogRow *row) {
     FileTimeToSystemTime(&ft, &st);
     sprintf(dateBuffer, "%d-%02d-%02d %02d:%02d:%02d.%03d",
         st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
-    row->time = string(dateBuffer);
+    row->time = std::string(dateBuffer);
 
     cleanup:
     if (hContext) {
@@ -190,7 +187,7 @@ DWORD GetEventValues(EVT_HANDLE hEvent, LogRow *row) {
 }
 
 // Enumerate all the events in the result set.
-DWORD GetEventLogsRow(EVT_HANDLE hResults, vector<LogRow> *logs) {
+DWORD GetEventLogsRow(EVT_HANDLE hResults, std::vector<LogRow> *logs) {
     DWORD status = ERROR_SUCCESS;
     EVT_HANDLE hEvents[ARRAY_SIZE];
     DWORD dwReturned = 0;
@@ -235,24 +232,21 @@ DWORD GetEventLogsRow(EVT_HANDLE hResults, vector<LogRow> *logs) {
  * @doc: https://docs.microsoft.com/en-us/windows/desktop/eventlog/querying-for-event-source-messages
  * @doc: https://docs.microsoft.com/en-us/windows/desktop/wes/rendering-events
  */
-Value readEventLog(const CallbackInfo& info) {
-    Env env = info.Env();
-    vector<LogRow> logs;
+Napi::Value readEventLog(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+    std::vector<LogRow> logs;
     DWORD status = ERROR_SUCCESS;
     EVT_HANDLE hResults = NULL;
     char winRootPath[MAX_PATH];
     Napi::Array ret = Napi::Array::New(env);
     LogRow row;
 
-    // Check argument length!
     if (info.Length() < 1) {
-        Error::New(env, "Wrong number of argument provided!").ThrowAsJavaScriptException();
+        Napi::Error::New(env, "Wrong number of argument provided!").ThrowAsJavaScriptException();
         return env.Null();
     }
-
-    // driveName should be typeof Napi::String
     if (!info[0].IsString()) {
-        Error::New(env, "argument logName should be typeof string!").ThrowAsJavaScriptException();
+        Napi::Error::New(env, "argument logName should be typeof string!").ThrowAsJavaScriptException();
         return env.Null();
     }
 
@@ -260,11 +254,11 @@ Value readEventLog(const CallbackInfo& info) {
 	GetWindowsDirectoryA(winRootPath, MAX_PATH);
 
     // Retrieve log name!
-    string logName = info[0].As<String>().Utf8Value();
-    stringstream ss;
+    std::string logName = info[0].As<Napi::String>().Utf8Value();
+    std::stringstream ss;
     ss << winRootPath << EVENTLOG_PATH << logName << ".evtx";
-    string logRoot = ss.str();
-    wstring ws = s2ws(logRoot);
+    std::string logRoot = ss.str();
+    std::wstring ws = s2ws(logRoot);
     LPCWSTR completeEventLogPath = ws.c_str();
     // wprintf(L"path %s\n", completeEventLogPath);
 
@@ -273,17 +267,17 @@ Value readEventLog(const CallbackInfo& info) {
     if (NULL == hResults) {
         status = GetLastError();
         if (ERROR_EVT_CHANNEL_NOT_FOUND == status) {
-            Error::New(env, "The channel was not found.").ThrowAsJavaScriptException();
+            Napi::Error::New(env, "The channel was not found.").ThrowAsJavaScriptException();
         }
         else if (ERROR_EVT_INVALID_QUERY == status) {
             // You can call the EvtGetExtendedStatus function to try to get
             // additional information as to what is wrong with the query.
-            Error::New(env, "The query is not valid").ThrowAsJavaScriptException();
+            Napi::Error::New(env, "The query is not valid").ThrowAsJavaScriptException();
         }
         else {
-            stringstream error;
-            error << "EvtQuery failed with code: " << status << ", message: " << getLastErrorMessage() << endl;
-            Error::New(env, error.str()).ThrowAsJavaScriptException();
+            std::stringstream error;
+            error << "EvtQuery failed with code: " << status << ", message: " << getLastErrorMessage() << std::endl;
+            Napi::Error::New(env, error.str()).ThrowAsJavaScriptException();
         }
 
         goto cleanup;
@@ -319,12 +313,10 @@ Value readEventLog(const CallbackInfo& info) {
     return ret;
 }
 
-// Initialize Native Addon
-Object Init(Env env, Object exports) {
-    exports.Set("readEventLog", Function::New(env, readEventLog));
+Napi::Object Init(Napi::Env env,Napi:: Object exports) {
+    exports.Set("readEventLog", Napi::Function::New(env, readEventLog));
 
     return exports;
 }
 
-// Export
 NODE_API_MODULE(winelog, Init)

@@ -11,15 +11,15 @@ const winelog = require("./build/Release/winelog.node");
 //     break;
 // }
 
-// console.time("Security");
-// const securityLogs = winelog.readEventLog("Security");
-// console.timeEnd("Security");
-// for (const log of securityLogs) {
-//     console.log(log);
-//     break;
-// }
+console.time("Security");
+const securityLogs = winelog.readEventLog("Security");
+console.timeEnd("Security");
+for (const log of securityLogs) {
+    console.log(log);
+    break;
+}
 
-console.time("System");
-const sysLogs = winelog.readEventLog("System");
-console.timeEnd("System");
-console.log(sysLogs.length);
+// console.time("System");
+// const sysLogs = winelog.readEventLog("System");
+// console.timeEnd("System");
+// console.log(sysLogs.length);
