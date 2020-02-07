@@ -37,7 +37,8 @@
     "index.d.ts",
     "binding.gyp",
     "winelog.cpp",
-    "include/*.h"
+    "include",
+    "prebuilds"
   ],
   "engines": {
     "node": ">=12"
