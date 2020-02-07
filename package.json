@@ -1,7 +1,7 @@
 {
   "name": "@slimio/winelog",
   "version": "1.0.0",
-  "description": "Windows Disk low level binding",
+  "description": "Windows Events log reader - low-level C++/Node.js N-API binding",
   "main": "index.js",
   "husky": {
     "hooks": {
@@ -24,13 +24,23 @@
   },
   "keywords": [
     "SlimIO",
-    "Windows",
-    "Events",
-    "Logs",
-    "Binding",
-    "NAPI",
-    "Microsoft",
-    "EventLog"
+    "windows",
+    "event",
+    "events",
+    "logs",
+    "log",
+    "low-level",
+    "natif",
+    "reader",
+    "binding",
+    "napi",
+    "n-api",
+    "microsoft",
+    "eventlog",
+    "monitoring",
+    "security",
+    "application",
+    "system"
   ],
   "files": [
     "index.js",
