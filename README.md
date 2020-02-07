@@ -11,7 +11,7 @@
 Windows Events log reader - Node.JS low-level binding
 
 ## Requirements
-- Node.js v12 or higher
+- [Node.js](https://nodejs.org/en/) v12 or higher
 
 ## Getting Started
 
@@ -39,10 +39,10 @@ main().catch(console.error);
 ## API
 
 <details>
-<summary>readEventLog(logName: keyof EventsLogFiles): AsyncIterableIterator< EventLog ></summary>
+<summary>readEventLog(logName: keyof EventsLogFiles, reverseDirection?: boolean): AsyncIterableIterator< EventLog ></summary>
 <br />
 
-Return an Async iterable of EventLog.
+Read a given event log in reverse direction (direction can be updated to be forward). Return an Async Iterable that can be stopped at any time.
 ```ts
 interface EventLog {
     eventId: number;
