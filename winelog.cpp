@@ -186,63 +186,113 @@ DWORD GetEventValues(EVT_HANDLE hEvent, LogRow *row) {
     return status;
 }
 
-// Enumerate all the events in the result set.
-DWORD GetEventLogsRow(EVT_HANDLE hResults, Napi::Env env, Napi::Function *callback) {
-    DWORD status = ERROR_SUCCESS;
-    EVT_HANDLE hEvents[ARRAY_SIZE];
-    DWORD dwReturned = 0;
+class LogReaderWorker : public Napi::AsyncProgressWorker<LogRow> {
+    public:
+        LogReaderWorker(Napi::Function& callback, LPCWSTR completeEventLogPath) : AsyncProgressWorker(callback), completeEventLogPath(completeEventLogPath) {}
+        ~LogReaderWorker() {}
+    private:
+        LPCWSTR completeEventLogPath;
+        EVT_HANDLE hResults = NULL;
 
-    while (true) {
-        // Get a block of events from the result set.
-        if (!EvtNext(hResults, ARRAY_SIZE, hEvents, INFINITE, 0, &dwReturned)) {
-            if (ERROR_NO_MORE_ITEMS != (status = GetLastError())) {
-                wprintf(L"EvtNext failed with %lu\n", status);
+    void Execute(const ExecutionProgress& progress) {
+        DWORD status = ERROR_SUCCESS;
+        EVT_HANDLE hEvents[ARRAY_SIZE];
+        DWORD dwReturned = 0;
+
+        hResults = EvtQuery(NULL, completeEventLogPath, L"*", EvtQueryFilePath | EvtQueryReverseDirection);
+        if (NULL == hResults) {
+            status = GetLastError();
+            if (ERROR_EVT_CHANNEL_NOT_FOUND == status) {
+                SetError("The channel was not found.");
             }
+            else if (ERROR_EVT_INVALID_QUERY == status) {
+                SetError("The query is not valid");
+            }
+            else {
+                SetError("EvtQuery failed");
+            }
+
             goto cleanup;
         }
 
-        // For each event, call the PrintEvent function which renders the
-        // event for display. PrintEvent is shown in RenderingEvents.
-        for (DWORD i = 0; i < dwReturned; i++) {
-            LogRow row;
-            status = GetEventValues(hEvents[i], &row);
+        while (true) {
+            if (!EvtNext(hResults, ARRAY_SIZE, hEvents, INFINITE, 0, &dwReturned)) {
+                if (ERROR_NO_MORE_ITEMS != (status = GetLastError())) {
+                    wprintf(L"EvtNext failed with %lu\n", status);
+                }
+                goto cleanup;
+            }
 
-            if (ERROR_SUCCESS == status) {
-                Napi::Object jsRow = Napi::Object::New(env);
+            for (DWORD i = 0; i < dwReturned; i++) {
+                LogRow row;
+                status = GetEventValues(hEvents[i], &row);
+                if (ERROR_SUCCESS != status) {
+                    goto cleanup;
+                }
 
-                jsRow.Set("eventId", row.eventID);
-                jsRow.Set("providerName", row.providerName);
-                jsRow.Set("providerGUID", row.providerGUID);
-                jsRow.Set("level", row.level);
-                jsRow.Set("task", row.task);
-                jsRow.Set("opcode", row.opcode);
-                jsRow.Set("keywords", row.keywords);
-                jsRow.Set("eventRecordId", row.eventRecordID);
-                jsRow.Set("processId", row.processID);
-                jsRow.Set("threadId", row.threadID);
-                jsRow.Set("channel", row.channel);
-                jsRow.Set("computer", row.computer);
-                jsRow.Set("timeCreated", row.time);
-
-                callback->Call(env.Global(), { jsRow });
+                progress.Send(&row, 1);
                 EvtClose(hEvents[i]);
                 hEvents[i] = NULL;
             }
-            else {
-                goto cleanup;
+        }
+
+        cleanup:
+        for (DWORD i = 0; i < dwReturned; i++) {
+            if (hEvents[i] != NULL) {
+                EvtClose(hEvents[i]);
             }
         }
-    }
-
-    cleanup:
-    for (DWORD i = 0; i < dwReturned; i++) {
-        if (NULL != hEvents[i]) {
-            EvtClose(hEvents[i]);
+        if (hResults) {
+            EvtClose(hResults);
         }
     }
 
-    return status;
-}
+    void OnError(const Napi::Error& e) {
+        DWORD errorCode = GetLastError();
+        std::stringstream error;
+        error << e.what();
+        if (errorCode != 0) {
+            error << " - code (" << errorCode << ") - " << getLastErrorMessage();
+        }
+
+        Callback().Call({
+            Napi::String::New(Env(), error.str()), Env().Null()
+        });
+    }
+
+    void OnOK() {
+        Napi::HandleScope scope(Env());
+        std::cout << "done !" << "\n";
+
+        Callback().Call({
+            Env().Null(), Env().Null()
+        });
+    }
+
+    void OnProgress(const LogRow *row, size_t /* count */) {
+        Napi::HandleScope scope(Env());
+        Napi::Object jsRow = Napi::Object::New(Env());
+
+        jsRow.Set("eventId", row->eventID);
+        jsRow.Set("providerName", row->providerName);
+        jsRow.Set("providerGUID", row->providerGUID);
+        jsRow.Set("level", row->level);
+        jsRow.Set("task", row->task);
+        jsRow.Set("opcode", row->opcode);
+        jsRow.Set("keywords", row->keywords);
+        jsRow.Set("eventRecordId", row->eventRecordID);
+        jsRow.Set("processId", row->processID);
+        jsRow.Set("threadId", row->threadID);
+        jsRow.Set("channel", row->channel);
+        jsRow.Set("computer", row->computer);
+        jsRow.Set("timeCreated", row->time);
+
+        Callback().Call({
+            Env().Null(),
+            jsRow
+        });
+    }
+};
 
 /*
  * Binding for retrieving drive performance
@@ -252,10 +302,10 @@ DWORD GetEventLogsRow(EVT_HANDLE hResults, Napi::Env env, Napi::Function *callba
  */
 Napi::Value readEventLog(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    DWORD status = ERROR_SUCCESS;
-    EVT_HANDLE hResults = NULL;
     char winRootPath[MAX_PATH];
-    Napi::Array ret = Napi::Array::New(env);
+    LPCWSTR completeEventLogPath;
+    std::string logName;
+    Napi::Function callback;
 
     if (info.Length() < 1) {
         Napi::Error::New(env, "Wrong number of argument provided!").ThrowAsJavaScriptException();
@@ -266,49 +316,20 @@ Napi::Value readEventLog(const Napi::CallbackInfo& info) {
         return env.Null();
     }
 
-    // Retrieve Windows path!
-	GetWindowsDirectoryA(winRootPath, MAX_PATH);
+    logName = info[0].As<Napi::String>().Utf8Value();
+    callback = info[1].As<Napi::Function>();
 
-    std::string logName = info[0].As<Napi::String>().Utf8Value();
-    Napi::Function logCallback = info[1].As<Napi::Function>();
+    // Build complete event log path
+	GetWindowsDirectoryA(winRootPath, MAX_PATH);
     std::stringstream ss;
     ss << winRootPath << EVENTLOG_PATH << logName << ".evtx";
     std::string logRoot = ss.str();
     std::wstring ws = s2ws(logRoot);
-    LPCWSTR completeEventLogPath = ws.c_str();
+    completeEventLogPath = ws.c_str();
 
-    // Open Log
-    hResults = EvtQuery(NULL, completeEventLogPath, L"*", EvtQueryFilePath | EvtQueryReverseDirection);
-    if (NULL == hResults) {
-        status = GetLastError();
-        if (ERROR_EVT_CHANNEL_NOT_FOUND == status) {
-            Napi::Error::New(env, "The channel was not found.").ThrowAsJavaScriptException();
-        }
-        else if (ERROR_EVT_INVALID_QUERY == status) {
-            // You can call the EvtGetExtendedStatus function to try to get
-            // additional information as to what is wrong with the query.
-            Napi::Error::New(env, "The query is not valid").ThrowAsJavaScriptException();
-        }
-        else {
-            std::stringstream error;
-            error << "EvtQuery failed with code: " << status << ", message: " << getLastErrorMessage() << std::endl;
-            Napi::Error::New(env, error.str()).ThrowAsJavaScriptException();
-        }
+    (new LogReaderWorker(callback, completeEventLogPath))->Queue();
 
-        goto cleanup;
-    }
-
-    std::cout << "enter GetEventLogsRow" << "\n";
-    GetEventLogsRow(hResults, env, &logCallback);
-    logCallback.Call(env.Global(), { env.Null() });
-    std::cout << "exit GetEventLogsRow" << "\n";
-
-    cleanup:
-    if (hResults) {
-        EvtClose(hResults);
-    }
-
-    return ret;
+    return env.Undefined();
 }
 
 Napi::Object Init(Napi::Env env,Napi:: Object exports) {

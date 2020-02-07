@@ -58,6 +58,7 @@
   },
   "homepage": "https://github.com/SlimIO/Winelog#readme",
   "dependencies": {
+    "make-promises-safe": "^5.1.0",
     "node-addon-api": "^2.0.0"
   },
   "devDependencies": {

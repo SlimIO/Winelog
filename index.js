@@ -1,5 +1,7 @@
 "use strict";
 
+require("make-promises-safe");
+
 // Require Node.js Dependencies
 const { EventEmitter, on } = require("events");
 
@@ -17,13 +19,18 @@ const winelog = require("./build/Release/winelog.node");
 async function* readEventLog(name) {
     const ee = new EventEmitter();
     setImmediate(() => {
-        winelog.readEventLog("Security", (row) => ee.emit("row", row));
+        // TODO: would be cool to being able to pull a close signal
+        winelog.readEventLog("Security", (error, row) => ee.emit("row", error, row));
     });
 
-    for await (const row of on(ee, "row")) {
+    for await (const [error, row] of on(ee, "row")) {
+        if (error !== null) {
+            throw error;
+        }
         if (row === null) {
             break;
         }
+
         yield row;
     }
 }
@@ -33,6 +40,9 @@ async function main() {
         console.log(row);
         break;
     }
+    console.log("boo");
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    console.log("foo");
 }
 main().catch(console.error);
 
