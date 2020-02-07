@@ -1,26 +1,31 @@
 declare namespace Winelog {
-
-    export enum LogType {
-        Application = 0,
-        System = 1,
-        Security = 2,
-        DirectoryService = 3,
-        DNSServer = 4,
-        FileReplicationService = 5
+    export interface EventsLogFiles {
+        Application: string;
+        System: string;
+        Security: string;
+        DirectoryService: string;
+        DNSServer: string;
+        FileReplicationService: string;
     }
 
     export interface EventLog {
-        id: number;
-        type: string;
-        recordNumber: number;
-        caterogy: string;
-        message: string;
-        timeGenerated: number;
-        timeWritten: number;
+        eventId: number;
+        providerName: string;
+        providerGUID: string;
+        channel: string;
+        computer: string;
+        timeCreated: string;
+        level: number;
+        task: number;
+        opcode: number;
+        keywords: number;
+        eventRecordID: number;
+        processID: number;
+        threadID: number;
     }
 
-    export function readEventLog(logName: Winelog.LogType): EventLog[];
-
+    export function readEventLog(logName: keyof EventsLogFiles): AsyncIterableIterator<EventLog>;
+    export const files: EventsLogFiles;
 }
 
 export as namespace Winelog;

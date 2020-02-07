@@ -188,9 +188,16 @@ DWORD GetEventValues(EVT_HANDLE hEvent, LogRow *row) {
 
 class LogReaderWorker : public Napi::AsyncProgressWorker<LogRow> {
     public:
-        LogReaderWorker(Napi::Function& callback, LPCWSTR completeEventLogPath) : AsyncProgressWorker(callback), completeEventLogPath(completeEventLogPath) {}
+        LogReaderWorker(Napi::Function& callback, LPCWSTR completeEventLogPath)
+        : AsyncProgressWorker(callback), completeEventLogPath(completeEventLogPath) {}
         ~LogReaderWorker() {}
+
+    void CloseWorker() {
+        closed = 1;
+    }
+
     private:
+        int closed = 0;
         LPCWSTR completeEventLogPath;
         EVT_HANDLE hResults = NULL;
 
@@ -216,6 +223,9 @@ class LogReaderWorker : public Napi::AsyncProgressWorker<LogRow> {
         }
 
         while (true) {
+            if (closed == 1) {
+                break;
+            }
             if (!EvtNext(hResults, ARRAY_SIZE, hEvents, INFINITE, 0, &dwReturned)) {
                 if (ERROR_NO_MORE_ITEMS != (status = GetLastError())) {
                     wprintf(L"EvtNext failed with %lu\n", status);
@@ -262,7 +272,6 @@ class LogReaderWorker : public Napi::AsyncProgressWorker<LogRow> {
 
     void OnOK() {
         Napi::HandleScope scope(Env());
-        std::cout << "done !" << "\n";
 
         Callback().Call({
             Env().Null(), Env().Null()
@@ -293,6 +302,15 @@ class LogReaderWorker : public Napi::AsyncProgressWorker<LogRow> {
         });
     }
 };
+
+Napi::Value FreeCallback(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+
+    LogReaderWorker* wk = (LogReaderWorker*) info.Data();
+    wk->CloseWorker();
+
+    return env.Undefined();
+}
 
 /*
  * Binding for retrieving drive performance
@@ -327,9 +345,11 @@ Napi::Value readEventLog(const Napi::CallbackInfo& info) {
     std::wstring ws = s2ws(logRoot);
     completeEventLogPath = ws.c_str();
 
-    (new LogReaderWorker(callback, completeEventLogPath))->Queue();
+    LogReaderWorker *wk = new LogReaderWorker(callback, completeEventLogPath);
+    wk->Queue();
+    Napi::Function free = Napi::Function::New(env, FreeCallback, "free", wk);
 
-    return env.Undefined();
+    return free;
 }
 
 Napi::Object Init(Napi::Env env,Napi:: Object exports) {

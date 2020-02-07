@@ -8,45 +8,50 @@ const { EventEmitter, on } = require("events");
 /** @type {Winelog} */
 const winelog = require("./build/Release/winelog.node");
 
-// console.time("Application");
-// const appLogs = winelog.readEventLog("Application");
-// console.timeEnd("Application");
-// for (const log of appLogs) {
-//     console.log(log);
-//     break;
-// }
+// CONSTANTS
+const kFiles = Object.freeze({
+    Application: "Application",
+    System: "System",
+    Security: "Security",
+    DirectoryService: "DirectoryService",
+    DNSServer: "DNSServer",
+    FileReplicationService: "FileReplicationService"
+});
 
+/**
+ * @async
+ * @generator
+ * @function readEventLog
+ * @param {!string} name event log name
+ *
+ * @throws {TypeError}
+ */
 async function* readEventLog(name) {
+    if (typeof name !== "string") {
+        throw new TypeError("name must be a string");
+    }
+
     const ee = new EventEmitter();
+    let closeReadWorker;
     setImmediate(() => {
-        // TODO: would be cool to being able to pull a close signal
-        winelog.readEventLog("Security", (error, row) => ee.emit("row", error, row));
+        closeReadWorker = winelog.readEventLog(name, (error, row) => ee.emit("row", error, row));
     });
 
-    for await (const [error, row] of on(ee, "row")) {
-        if (error !== null) {
-            throw error;
-        }
-        if (row === null) {
-            break;
-        }
+    try {
+        for await (const [error, row] of on(ee, "row")) {
+            if (error !== null) {
+                throw error;
+            }
+            if (row === null) {
+                break;
+            }
 
-        yield row;
+            yield row;
+        }
+    }
+    finally {
+        closeReadWorker && closeReadWorker();
     }
 }
 
-async function main() {
-    for await (const row of readEventLog("Security")) {
-        console.log(row);
-        break;
-    }
-    console.log("boo");
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    console.log("foo");
-}
-main().catch(console.error);
-
-// console.time("System");
-// const sysLogs = winelog.readEventLog("System");
-// console.timeEnd("System");
-// console.log(sysLogs.length);
+module.exports = { readEventLog, files: kFiles };

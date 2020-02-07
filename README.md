@@ -21,10 +21,44 @@ $ yarn add @slimio/winelog
 ```
 
 ## Usage example
-TBC
+```js
+const { readEventLog, files } = require("@slimio/winelog");
+
+async function main() {
+    for await (const eventLine of readEventLog(files.Security)) {
+        console.log(eventLine);
+        break;
+    }
+}
+main().catch(console.error);
+```
 
 ## API
-TBC
+
+<details>
+<summary>readEventLog(logName: keyof EventsLogFiles): AsyncIterableIterator< EventLog ></summary>
+<br />
+
+Return an Async iterable of EventLog.
+```ts
+interface EventLog {
+    eventId: number;
+    providerName: string;
+    providerGUID: string;
+    channel: string;
+    computer: string;
+    timeCreated: string;
+    level: number;
+    task: number;
+    opcode: number;
+    keywords: number;
+    eventRecordID: number;
+    processID: number;
+    threadID: number;
+}
+```
+
+</details>
 
 ## Contribution Guidelines
 To contribute to the project, please read the [code of conduct](https://github.com/SlimIO/Governance/blob/master/COC_POLICY.md) and the guide for [N-API compilation](https://github.com/SlimIO/Governance/blob/master/docs/native_addons.md).
