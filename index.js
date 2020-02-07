@@ -1,12 +1,10 @@
 "use strict";
 
-require("make-promises-safe");
-
 // Require Node.js Dependencies
 const { EventEmitter, on } = require("events");
 
 /** @type {Winelog} */
-const winelog = require("./build/Release/winelog.node");
+const winelog = require("node-gyp-build")(__dirname);
 
 // CONSTANTS
 const kFiles = Object.freeze({
@@ -23,24 +21,29 @@ const kFiles = Object.freeze({
  * @generator
  * @function readEventLog
  * @param {!string} name event log name
+ * @param {bool} [reverseDirection=true] switch between reverse and forward direction
  *
  * @throws {TypeError}
+ * @throws {Error}
+ *
+ * @example
+ * for await (const event of readEventLog("Security")) {
+ *     console.log(event);
+ *     break;
+ * }
  */
-async function* readEventLog(name) {
+async function* readEventLog(name, reverseDirection = true) {
     if (typeof name !== "string") {
         throw new TypeError("name must be a string");
     }
 
     const ee = new EventEmitter();
-    let closeReadWorker;
-    setImmediate(() => {
-        closeReadWorker = winelog.readEventLog(name, (error, row) => ee.emit("row", error, row));
-    });
+    const closeReadWorker = winelog.readEventLog(name, reverseDirection, (error, row) => ee.emit("row", error, row));
 
     try {
         for await (const [error, row] of on(ee, "row")) {
             if (error !== null) {
-                throw error;
+                throw new Error(error);
             }
             if (row === null) {
                 break;

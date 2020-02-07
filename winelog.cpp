@@ -68,6 +68,21 @@ std::string guidToString(GUID guid) {
     return std::string(guid_cstr);
 }
 
+/*
+ * Create a complete events logs path
+ */
+LPCWSTR constructEventLogPath(std::string logName) {
+    char winRootPath[MAX_PATH];
+    std::stringstream ss;
+
+    GetWindowsDirectoryA(winRootPath, MAX_PATH);
+    ss << winRootPath << EVENTLOG_PATH << logName << ".evtx";
+    std::string logRoot = ss.str();
+    std::wstring ws = s2ws(logRoot);
+
+    return ws.c_str();
+}
+
 DWORD GetEventValues(EVT_HANDLE hEvent, LogRow *row) {
     DWORD status = ERROR_SUCCESS;
     EVT_HANDLE hContext = NULL;
@@ -107,7 +122,7 @@ DWORD GetEventValues(EVT_HANDLE hEvent, LogRow *row) {
     // render the system section of the event.
     hContext = EvtCreateRenderContext(count, (LPCWSTR*)ppValues, EvtRenderContextValues);
     if (NULL == hContext) {
-        wprintf(L"EvtCreateRenderContext failed with %lu\n", status = GetLastError());
+        // wprintf(L"EvtCreateRenderContext failed with %lu\n", status = GetLastError());
         goto cleanup;
     }
 
@@ -126,14 +141,14 @@ DWORD GetEventValues(EVT_HANDLE hEvent, LogRow *row) {
                 EvtRender(hContext, hEvent, EvtRenderEventValues, dwBufferSize, pRenderedValues, &dwBufferUsed, &dwPropertyCount);
             }
             else {
-                wprintf(L"malloc failed\n");
+                // wprintf(L"malloc failed\n");
                 status = ERROR_OUTOFMEMORY;
                 goto cleanup;
             }
         }
 
         if (ERROR_SUCCESS != (status = GetLastError())) {
-            wprintf(L"EvtRender failed with %d\n", GetLastError());
+            // wprintf(L"EvtRender failed with %d\n", GetLastError());
             goto cleanup;
         }
     }
@@ -186,10 +201,16 @@ DWORD GetEventValues(EVT_HANDLE hEvent, LogRow *row) {
     return status;
 }
 
+/**
+ * Read event log - Asynchronous Worker
+ *
+ * @doc: https://docs.microsoft.com/en-us/windows/desktop/eventlog/querying-for-event-source-messages
+ * @doc: https://docs.microsoft.com/en-us/windows/desktop/wes/rendering-events
+ */
 class LogReaderWorker : public Napi::AsyncProgressWorker<LogRow> {
     public:
-        LogReaderWorker(Napi::Function& callback, LPCWSTR completeEventLogPath)
-        : AsyncProgressWorker(callback), completeEventLogPath(completeEventLogPath) {}
+        LogReaderWorker(Napi::Function& callback, LPCWSTR completeEventLogPath, bool reverse)
+        : AsyncProgressWorker(callback), completeEventLogPath(completeEventLogPath), reverse(reverse) {}
         ~LogReaderWorker() {}
 
     void CloseWorker() {
@@ -198,6 +219,7 @@ class LogReaderWorker : public Napi::AsyncProgressWorker<LogRow> {
 
     private:
         int closed = 0;
+        bool reverse;
         LPCWSTR completeEventLogPath;
         EVT_HANDLE hResults = NULL;
 
@@ -205,18 +227,19 @@ class LogReaderWorker : public Napi::AsyncProgressWorker<LogRow> {
         DWORD status = ERROR_SUCCESS;
         EVT_HANDLE hEvents[ARRAY_SIZE];
         DWORD dwReturned = 0;
+        EVT_QUERY_FLAGS direction = reverse ? EvtQueryReverseDirection : EvtQueryForwardDirection;
 
-        hResults = EvtQuery(NULL, completeEventLogPath, L"*", EvtQueryFilePath | EvtQueryReverseDirection);
+        hResults = EvtQuery(NULL, completeEventLogPath, L"*", EvtQueryFilePath | direction);
         if (NULL == hResults) {
             status = GetLastError();
             if (ERROR_EVT_CHANNEL_NOT_FOUND == status) {
-                SetError("The channel was not found.");
+                SetError("ERROR_EVT_CHANNEL_NOT_FOUND - Channel not found");
             }
             else if (ERROR_EVT_INVALID_QUERY == status) {
-                SetError("The query is not valid");
+                SetError("ERROR_EVT_INVALID_QUERY - Invalid query");
             }
             else {
-                SetError("EvtQuery failed");
+                SetError("EvtQuery failed - Insufficient right");
             }
 
             goto cleanup;
@@ -227,9 +250,9 @@ class LogReaderWorker : public Napi::AsyncProgressWorker<LogRow> {
                 break;
             }
             if (!EvtNext(hResults, ARRAY_SIZE, hEvents, INFINITE, 0, &dwReturned)) {
-                if (ERROR_NO_MORE_ITEMS != (status = GetLastError())) {
-                    wprintf(L"EvtNext failed with %lu\n", status);
-                }
+                // if (ERROR_NO_MORE_ITEMS != (status = GetLastError())) {
+                //     wprintf(L"EvtNext failed with %lu\n", status);
+                // }
                 goto cleanup;
             }
 
@@ -303,6 +326,9 @@ class LogReaderWorker : public Napi::AsyncProgressWorker<LogRow> {
     }
 };
 
+/**
+ * Function that will be returned to the JavaScript layer. This method is capable to close the worker!
+ */
 Napi::Value FreeCallback(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 
@@ -313,19 +339,16 @@ Napi::Value FreeCallback(const Napi::CallbackInfo& info) {
 }
 
 /*
- * Binding for retrieving drive performance
- *
- * @doc: https://docs.microsoft.com/en-us/windows/desktop/eventlog/querying-for-event-source-messages
- * @doc: https://docs.microsoft.com/en-us/windows/desktop/wes/rendering-events
+ * Read a given event log (Binding interface).
  */
 Napi::Value readEventLog(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    char winRootPath[MAX_PATH];
     LPCWSTR completeEventLogPath;
     std::string logName;
     Napi::Function callback;
+    bool reverse = true;
 
-    if (info.Length() < 1) {
+    if (info.Length() < 3) {
         Napi::Error::New(env, "Wrong number of argument provided!").ThrowAsJavaScriptException();
         return env.Null();
     }
@@ -333,19 +356,21 @@ Napi::Value readEventLog(const Napi::CallbackInfo& info) {
         Napi::Error::New(env, "argument logName should be typeof string!").ThrowAsJavaScriptException();
         return env.Null();
     }
+    if (!info[1].IsBoolean()) {
+        Napi::Error::New(env, "argument reverse should be typeof boolean!").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+    if (!info[2].IsFunction()) {
+        Napi::Error::New(env, "argument callback should be typeof function!").ThrowAsJavaScriptException();
+        return env.Null();
+    }
 
     logName = info[0].As<Napi::String>().Utf8Value();
-    callback = info[1].As<Napi::Function>();
+    reverse = info[1].As<Napi::Boolean>().ToBoolean();
+    callback = info[2].As<Napi::Function>();
 
-    // Build complete event log path
-	GetWindowsDirectoryA(winRootPath, MAX_PATH);
-    std::stringstream ss;
-    ss << winRootPath << EVENTLOG_PATH << logName << ".evtx";
-    std::string logRoot = ss.str();
-    std::wstring ws = s2ws(logRoot);
-    completeEventLogPath = ws.c_str();
-
-    LogReaderWorker *wk = new LogReaderWorker(callback, completeEventLogPath);
+    completeEventLogPath = constructEventLogPath(logName);
+    LogReaderWorker *wk = new LogReaderWorker(callback, completeEventLogPath, reverse);
     wk->Queue();
     Napi::Function free = Napi::Function::New(env, FreeCallback, "free", wk);
 

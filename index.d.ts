@@ -24,7 +24,7 @@ declare namespace Winelog {
         threadID: number;
     }
 
-    export function readEventLog(logName: keyof EventsLogFiles): AsyncIterableIterator<EventLog>;
+    export function readEventLog(logName: keyof EventsLogFiles, reverseDirection?: boolean): AsyncIterableIterator<EventLog>;
     export const files: EventsLogFiles;
 }
 

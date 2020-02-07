@@ -25,8 +25,8 @@ $ yarn add @slimio/winelog
 const { readEventLog, files } = require("@slimio/winelog");
 
 async function main() {
-    for await (const eventLine of readEventLog(files.Security)) {
-        console.log(eventLine);
+    for await (const event of readEventLog(files.Security)) {
+        console.log(event);
         break;
     }
 }
