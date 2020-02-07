@@ -1,0 +1,12 @@
+os:
+    - windows
+language: node_js
+node_js:
+    - "12"
+install:
+    - travis_retry npm ci
+    - npm run build
+after_failure:
+  - wget https://raw.githubusercontent.com/DiscordHooks/travis-ci-discord-webhook/master/send.sh
+  - chmod +x send.sh
+  - ./send.sh failure $WEBHOOK_URL

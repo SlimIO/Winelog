@@ -6,6 +6,7 @@
 ![dep](https://img.shields.io/badge/Dependencies-2-yellow.svg)
 ![size](https://img.shields.io/github/languages/code-size/SlimIO/winelog)
 ![known vulnerabilities](https://img.shields.io/snyk/vulnerabilities/github/SlimIO/winelog)
+[![Build Status](https://travis-ci.com/SlimIO/Winelog.svg?branch=master)](https://travis-ci.com/SlimIO/Winelog)
 
 Windows Events log reader - Node.JS low-level binding
 
