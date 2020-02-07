@@ -12,7 +12,7 @@
 Windows Events log reader - Node.JS low-level binding
 
 ## Requirements
-- [Node.js](https://nodejs.org/en/) v12 or higher
+- [Node.js](https://nodejs.org/en/) v13 or higher
 
 ## Getting Started
 

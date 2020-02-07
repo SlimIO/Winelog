@@ -51,7 +51,7 @@
     "prebuilds"
   ],
   "engines": {
-    "node": ">=12"
+    "node": ">=13"
   },
   "author": "SlimIO",
   "license": "MIT",
