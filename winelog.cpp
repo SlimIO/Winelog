@@ -17,9 +17,11 @@ struct LogRow {
     uint16_t eventID;
     std::string providerGUID;
     std::string providerName;
+    std::string providerSourceName;
     std::string channel;
     std::string computer;
     std::string time;
+    std::string correlationActivityID;
     uint8_t level;
     uint8_t version;
     uint8_t opcode;
@@ -83,6 +85,10 @@ LPCWSTR constructEventLogPath(std::string logName) {
     return ws.c_str();
 }
 
+/**
+ * @doc: https://docs.microsoft.com/en-us/windows/win32/api/winevt/ne-winevt-evt_variant_type
+ * @doc: https://github.com/libyal/libevtx/blob/master/documentation/Windows%20XML%20Event%20Log%20(EVTX).asciidoc
+ */
 DWORD GetEventValues(EVT_HANDLE hEvent, LogRow *row) {
     DWORD status = ERROR_SUCCESS;
     EVT_HANDLE hContext = NULL;
@@ -90,30 +96,34 @@ DWORD GetEventValues(EVT_HANDLE hEvent, LogRow *row) {
     DWORD dwBufferUsed = 0;
     DWORD dwPropertyCount = 0;
     PEVT_VARIANT pRenderedValues = NULL;
+    uint16_t EventID = 0;
     LPWSTR ppValues[] = {
-        L"Event/System/Provider/@Name",
-        L"Event/System/Provider/@Guid",
-        L"Event/System/Provider/@EventSourceName",
-        L"Event/System/EventID",
-        L"Event/System/EventID/@Qualifiers",
-        L"Event/System/Version",
-        L"Event/System/Level",
-        L"Event/System/Task",
-        L"Event/System/Opcode",
-        L"Event/System/Keywords",
-        L"Event/System/TimeCreated/@SystemTime", // 10
-        L"Event/System/EventRecordID",
-        L"Event/System/Execution/@ProcessID",
-        L"Event/System/Execution/@ThreadID",
-        L"Event/System/Channel",
-        L"Event/System/Computer",
-        L"Event/System/Security/@UserID"
+        L"Event/System/Provider/@Name", // id: 0
+        L"Event/System/Provider/@Guid", // id: 1 (opt)
+        L"Event/System/Provider/@EventSourceName", // id: 2 (opt)
+        L"Event/System/EventID", // id: 3
+        L"Event/System/EventID/@Qualifiers", // id: 4
+        L"Event/System/Version", // id: 5
+        L"Event/System/Level", // id: 6
+        L"Event/System/Task", // id: 7
+        L"Event/System/Opcode", // id: 8
+        L"Event/System/Keywords", // id: 9
+        L"Event/System/TimeCreated/@SystemTime", // id: 10
+        L"Event/System/EventRecordID", // id: 11
+        L"Event/System/Execution/@ProcessID", // id: 12 (opt)
+        L"Event/System/Execution/@ThreadID", // id: 13 (opt)
+        L"Event/System/Channel", // id: 14 (opt)
+        L"Event/System/Computer", //id: 15
+        L"Event/System/Security/@UserID", // id: 16
+        L"Event/System/Correlation/@ActivityID", // id: 17 (opt)
+        L"Event/EventData/Data" // id: 18
     };
     DWORD count = sizeof(ppValues) / sizeof(LPWSTR);
     ULONGLONG ullTimeStamp = 0;
     SYSTEMTIME st;
     FILETIME ft;
     wchar_t* providerName;
+    wchar_t* providerSourceName;
     wchar_t* channel;
     wchar_t* computer;
     char dateBuffer[256];
@@ -154,18 +164,22 @@ DWORD GetEventValues(EVT_HANDLE hEvent, LogRow *row) {
     }
 
     providerName = (wchar_t*) (EvtVarTypeNull == pRenderedValues[0].Type) ? L"" : pRenderedValues[0].StringVal;
+    providerSourceName = (wchar_t*) (EvtVarTypeNull == pRenderedValues[2].Type) ? L"" : pRenderedValues[2].StringVal;
     row->providerName = std::string(_bstr_t(providerName));
+    row->providerSourceName = std::string(_bstr_t(providerSourceName));
 
-    uint16_t EventID = 0;
     EventID = pRenderedValues[3].UInt16Val;
-    if (EvtVarTypeNull != pRenderedValues[4].Type) {
+    if (pRenderedValues[4].Type != EvtVarTypeNull) {
         EventID = MAKELONG(pRenderedValues[3].UInt16Val, pRenderedValues[4].UInt16Val);
     }
     row->eventID = EventID;
 
-    // Print the values from the System section of the element.
-    if (NULL != pRenderedValues[1].GuidVal) {
+    // Handle GUID fields
+    if (pRenderedValues[1].GuidVal != NULL) {
         row->providerGUID = guidToString(*(pRenderedValues[1].GuidVal));
+    }
+    if (pRenderedValues[17].GuidVal != NULL) {
+        row->correlationActivityID = guidToString(*(pRenderedValues[17].GuidVal));
     }
 
     row->version = (EvtVarTypeNull == pRenderedValues[5].Type) ? 0 : pRenderedValues[5].ByteVal;
@@ -190,6 +204,18 @@ DWORD GetEventValues(EVT_HANDLE hEvent, LogRow *row) {
         st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
     row->time = std::string(dateBuffer);
 
+    // if (pRenderedValues[18].Type == EvtVarTypeString) {
+    //     std::cout << "event data type: " << pRenderedValues[18].Type << " ( " << EvtVarTypeNull << " ) " << std::endl;
+    //     LPWSTR* valArr = pRenderedValues[18].StringArr;
+    //     while (*valArr) {
+    //         wchar_t* wcharValue = (wchar_t*) valArr;
+    //         // std::string valueStr = std::string(_bstr_t(wcharValue));
+
+    //         std::wcout << "value : " << wcharValue << "\n";
+    //         *valArr++;
+    //     }
+    // }
+
     cleanup:
     if (hContext) {
         EvtClose(hContext);
@@ -209,8 +235,8 @@ DWORD GetEventValues(EVT_HANDLE hEvent, LogRow *row) {
  */
 class LogReaderWorker : public Napi::AsyncProgressWorker<LogRow> {
     public:
-        LogReaderWorker(Napi::Function& callback, LPCWSTR completeEventLogPath, bool reverse)
-        : AsyncProgressWorker(callback), completeEventLogPath(completeEventLogPath), reverse(reverse) {}
+        LogReaderWorker(Napi::Function& callback, LPCWSTR completeEventLogPath, const wchar_t* query, bool reverse)
+        : AsyncProgressWorker(callback), completeEventLogPath(completeEventLogPath), query(query), reverse(reverse) {}
         ~LogReaderWorker() {}
 
     void CloseWorker() {
@@ -221,6 +247,7 @@ class LogReaderWorker : public Napi::AsyncProgressWorker<LogRow> {
         int closed = 0;
         bool reverse;
         LPCWSTR completeEventLogPath;
+        const wchar_t* query;
         EVT_HANDLE hResults = NULL;
 
     void Execute(const ExecutionProgress& progress) {
@@ -266,6 +293,7 @@ class LogReaderWorker : public Napi::AsyncProgressWorker<LogRow> {
                 progress.Send(&row, 1);
                 EvtClose(hEvents[i]);
                 hEvents[i] = NULL;
+                break;
             }
         }
 
@@ -307,15 +335,26 @@ class LogReaderWorker : public Napi::AsyncProgressWorker<LogRow> {
 
         jsRow.Set("eventId", row->eventID);
         jsRow.Set("providerName", row->providerName);
-        jsRow.Set("providerGUID", row->providerGUID);
+        if (row->providerGUID.empty() == false) {
+            jsRow.Set("providerGUID", row->providerGUID);
+        }
+        if (row->providerSourceName.empty() == false) {
+            jsRow.Set("providerSourceName", row->providerSourceName);
+        }
+        if (row->correlationActivityID.empty() == false) {
+            jsRow.Set("correlationActivityGUID", row->correlationActivityID);
+        }
         jsRow.Set("level", row->level);
         jsRow.Set("task", row->task);
         jsRow.Set("opcode", row->opcode);
+        // TODO: use Napi::BigInt when out of experimental
         jsRow.Set("keywords", row->keywords);
         jsRow.Set("eventRecordId", row->eventRecordID);
-        jsRow.Set("processId", row->processID);
-        jsRow.Set("threadId", row->threadID);
-        jsRow.Set("channel", row->channel);
+        jsRow.Set("processId", row->processID == 0 ? Env().Null() : Napi::Number::New(Env(), row->processID));
+        jsRow.Set("threadId", row->threadID == 0 ? Env().Null() : Napi::Number::New(Env(), row->threadID));
+        if (row->channel.empty() == false) {
+            jsRow.Set("channel", row->channel);
+        }
         jsRow.Set("computer", row->computer);
         jsRow.Set("timeCreated", row->time);
 
@@ -345,10 +384,12 @@ Napi::Value readEventLog(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
     LPCWSTR completeEventLogPath;
     std::string logName;
+    std::string query;
+    std::wstring query_w;
     Napi::Function callback;
     bool reverse = true;
 
-    if (info.Length() < 3) {
+    if (info.Length() < 4) {
         Napi::Error::New(env, "Wrong number of argument provided!").ThrowAsJavaScriptException();
         return env.Null();
     }
@@ -356,21 +397,29 @@ Napi::Value readEventLog(const Napi::CallbackInfo& info) {
         Napi::Error::New(env, "argument logName should be typeof string!").ThrowAsJavaScriptException();
         return env.Null();
     }
-    if (!info[1].IsBoolean()) {
+    if (!info[1].IsString()) {
+        Napi::Error::New(env, "argument query should be typeof string!").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+    if (!info[2].IsBoolean()) {
         Napi::Error::New(env, "argument reverse should be typeof boolean!").ThrowAsJavaScriptException();
         return env.Null();
     }
-    if (!info[2].IsFunction()) {
+    if (!info[3].IsFunction()) {
         Napi::Error::New(env, "argument callback should be typeof function!").ThrowAsJavaScriptException();
         return env.Null();
     }
 
     logName = info[0].As<Napi::String>().Utf8Value();
-    reverse = info[1].As<Napi::Boolean>().ToBoolean();
-    callback = info[2].As<Napi::Function>();
+    query = info[1].As<Napi::String>().Utf8Value();
+    reverse = info[2].As<Napi::Boolean>().ToBoolean();
+    callback = info[3].As<Napi::Function>();
+
+    query_w = s2ws(query.c_str());
 
     completeEventLogPath = constructEventLogPath(logName);
-    LogReaderWorker *wk = new LogReaderWorker(callback, completeEventLogPath, reverse);
+    const wchar_t* localQuery = query_w.c_str();
+    LogReaderWorker *wk = new LogReaderWorker(callback, completeEventLogPath, localQuery, reverse);
     wk->Queue();
     Napi::Function free = Napi::Function::New(env, FreeCallback, "free", wk);
 

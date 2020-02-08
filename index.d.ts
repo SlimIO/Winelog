@@ -1,18 +1,13 @@
 declare namespace Winelog {
-    export interface EventsLogFiles {
-        Application: string;
-        System: string;
-        Security: string;
-        DirectoryService: string;
-        DNSServer: string;
-        FileReplicationService: string;
-    }
+    export type EventsLogFiles = "Application" | "System" | "Security" | "Setup";
 
     export interface EventLog {
         eventId: number;
         providerName: string;
-        providerGUID: string;
-        channel: string;
+        providerSourceName?: string;
+        providerGUID?: string;
+        correlationActivityGUID?: string;
+        channel?: string;
         computer: string;
         timeCreated: string;
         level: number;
@@ -20,12 +15,19 @@ declare namespace Winelog {
         opcode: number;
         keywords: number;
         eventRecordID: number;
-        processID: number;
-        threadID: number;
+        processID: number | null;
+        threadID: number | null;
     }
 
-    export function readEventLog(logName: keyof EventsLogFiles, reverseDirection?: boolean): AsyncIterableIterator<EventLog>;
-    export const files: EventsLogFiles;
+    interface ReadOptions {
+        reverseDirection?: boolean;
+        xPathQuery?: string;
+    }
+
+    export function readEventLog(logName: EventsLogFiles, options?: ReadOptions): AsyncIterableIterator<EventLog>;
+    export const files: {
+        [key: EventsLogFiles]: string;
+    };
 }
 
 export as namespace Winelog;
